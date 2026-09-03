@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -25,6 +26,10 @@ jobs:
       - name: Make Gradle Wrapper Executable
         run: chmod +x ./gradlew
 
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
       - name: Restore Debug Keystore
         run: |
           if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
@@ -33,7 +38,7 @@ jobs:
           fi
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload Test APK Artifact
         uses: actions/upload-artifact@v4
@@ -41,3 +46,4 @@ jobs:
           name: the-last-alchemist-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+

@@ -1,0 +1,6 @@
+{
+  "name": "The Last Alchemist",
+  "description": "A first-person 3D mystery, puzzle, and exploration adventure game set in an abandoned underground magical alchemy academy.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

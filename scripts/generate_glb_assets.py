@@ -227,196 +227,383 @@ def merge_meshes(mesh_list):
     return all_verts, all_normals, all_indices
 
 # --- Generate Models ---
-out_dir = "/app/applet/app/src/main/assets/models"
+out_dir = "app/src/main/assets/models"
 
-# 1. Alchemy Table
-# Dark aged oak top with carved stone legs and brass corner braces
-parts = []
-# Table top (width 2.0, height 0.12, depth 1.0) at height 0.85
-parts.append(add_box((0, 0.85, 0), (2.0, 0.12, 1.0)))
+# 1. Alchemy Table (Workbench)
+# Rich aged dark oak tabletop, dark ironwood frame, brass corner braces, leather mat & bronze mortar
+tbl_top_v, tbl_top_n, tbl_top_i = add_box((0, 0.85, 0), (2.0, 0.12, 1.0))
+
+tbl_frame_parts = []
 # 4 Sturdy legs
 leg_w, leg_h, leg_d = 0.14, 0.8, 0.14
-parts.append(add_box((-0.85, 0.4, -0.38), (leg_w, leg_h, leg_d)))
-parts.append(add_box(( 0.85, 0.4, -0.38), (leg_w, leg_h, leg_d)))
-parts.append(add_box((-0.85, 0.4,  0.38), (leg_w, leg_h, leg_d)))
-parts.append(add_box(( 0.85, 0.4,  0.38), (leg_w, leg_h, leg_d)))
+tbl_frame_parts.append(add_box((-0.85, 0.4, -0.38), (leg_w, leg_h, leg_d)))
+tbl_frame_parts.append(add_box(( 0.85, 0.4, -0.38), (leg_w, leg_h, leg_d)))
+tbl_frame_parts.append(add_box((-0.85, 0.4,  0.38), (leg_w, leg_h, leg_d)))
+tbl_frame_parts.append(add_box(( 0.85, 0.4,  0.38), (leg_w, leg_h, leg_d)))
 # Cross-braces
-parts.append(add_box((0, 0.25, -0.38), (1.6, 0.08, 0.08)))
-parts.append(add_box((0, 0.25,  0.38), (1.6, 0.08, 0.08)))
-v_tbl, n_tbl, i_tbl = merge_meshes(parts)
+tbl_frame_parts.append(add_box((0, 0.25, -0.38), (1.6, 0.08, 0.08)))
+tbl_frame_parts.append(add_box((0, 0.25,  0.38), (1.6, 0.08, 0.08)))
+tbl_frm_v, tbl_frm_n, tbl_frm_i = merge_meshes(tbl_frame_parts)
 
-export_glb(f"{out_dir}/alchemy_table.glb", [{
-    "name": "AlchemyTable",
-    "vertices": v_tbl,
-    "normals": n_tbl,
-    "indices": i_tbl,
-    "color": (0.32, 0.22, 0.15, 1.0), # Aged dark oak
-    "metallic": 0.15,
-    "roughness": 0.75
-}])
+# Brass corner protectors on all 4 corners
+tbl_brass_parts = []
+tbl_brass_parts.append(add_box((-0.94, 0.86, -0.44), (0.14, 0.14, 0.14)))
+tbl_brass_parts.append(add_box(( 0.94, 0.86, -0.44), (0.14, 0.14, 0.14)))
+tbl_brass_parts.append(add_box((-0.94, 0.86,  0.44), (0.14, 0.14, 0.14)))
+tbl_brass_parts.append(add_box(( 0.94, 0.86,  0.44), (0.14, 0.14, 0.14)))
+tbl_brs_v, tbl_brs_n, tbl_brs_i = merge_meshes(tbl_brass_parts)
+
+# Alchemical equipment resting on table (leather work mat + bronze mortar & pestle)
+tbl_equip_parts = []
+tbl_equip_parts.append(add_box((-0.40, 0.92, 0.0), (0.50, 0.02, 0.45))) # Leather mat
+tbl_equip_parts.append(add_box((-0.40, 0.98, 0.0), (0.18, 0.10, 0.18))) # Bronze mortar
+tbl_equip_parts.append(add_box((-0.37, 1.05, 0.03), (0.04, 0.12, 0.04))) # Pestle
+tbl_eqp_v, tbl_eqp_n, tbl_eqp_i = merge_meshes(tbl_equip_parts)
+
+export_glb(f"{out_dir}/alchemy_table.glb", [
+    {
+        "name": "TableWoodTop",
+        "vertices": tbl_top_v,
+        "normals": tbl_top_n,
+        "indices": tbl_top_i,
+        "color": (0.32, 0.19, 0.12, 1.0), # Polished aged dark oak
+        "metallic": 0.05,
+        "roughness": 0.65
+    },
+    {
+        "name": "TableWoodFrame",
+        "vertices": tbl_frm_v,
+        "normals": tbl_frm_n,
+        "indices": tbl_frm_i,
+        "color": (0.19, 0.12, 0.08, 1.0), # Heavy dark ironwood legs
+        "metallic": 0.05,
+        "roughness": 0.78
+    },
+    {
+        "name": "TableBrassHardware",
+        "vertices": tbl_brs_v,
+        "normals": tbl_brs_n,
+        "indices": tbl_brs_i,
+        "color": (0.75, 0.58, 0.20, 1.0), # Polished brass brackets
+        "metallic": 0.85,
+        "roughness": 0.30
+    },
+    {
+        "name": "TableEquipment",
+        "vertices": tbl_eqp_v,
+        "normals": tbl_eqp_n,
+        "indices": tbl_eqp_i,
+        "color": (0.45, 0.35, 0.18, 1.0), # Antique bronze tools & leather
+        "metallic": 0.75,
+        "roughness": 0.40
+    }
+])
 
 # 2. Ancient Bronze Cauldron
-# Octagonal faceted cauldron body with rim and base
-cauldron_parts = []
-# Base plate
-cauldron_parts.append(add_box((0, 0.05, 0), (0.5, 0.1, 0.5)))
-# Main belly (segmented box stack)
-cauldron_parts.append(add_box((0, 0.35, 0), (0.9, 0.5, 0.9)))
-# Upper neck
-cauldron_parts.append(add_box((0, 0.65, 0), (0.75, 0.15, 0.75)))
-# Flared rim
-cauldron_parts.append(add_box((0, 0.76, 0), (0.88, 0.08, 0.88)))
-# 3 stubby legs
-cauldron_parts.append(add_box((-0.35, 0.08, -0.35), (0.12, 0.16, 0.12)))
-cauldron_parts.append(add_box(( 0.35, 0.08, -0.35), (0.12, 0.16, 0.12)))
-cauldron_parts.append(add_box(( 0.00, 0.08,  0.40), (0.12, 0.16, 0.12)))
-v_cld, n_cld, i_cld = merge_meshes(cauldron_parts)
+cauldron_body_parts = []
+cauldron_body_parts.append(add_box((0, 0.05, 0), (0.5, 0.1, 0.5))) # Base plate
+cauldron_body_parts.append(add_box((0, 0.35, 0), (0.9, 0.5, 0.9))) # Main belly
+cauldron_body_parts.append(add_box((0, 0.65, 0), (0.75, 0.15, 0.75))) # Upper neck
+cld_body_v, cld_body_n, cld_body_i = merge_meshes(cauldron_body_parts)
 
-export_glb(f"{out_dir}/ancient_cauldron.glb", [{
-    "name": "AncientCauldron",
-    "vertices": v_cld,
-    "normals": n_cld,
-    "indices": i_cld,
-    "color": (0.22, 0.25, 0.24, 1.0), # Dark oxidized bronze
-    "metallic": 0.85,
-    "roughness": 0.45
-}])
+cauldron_trim_parts = []
+cauldron_trim_parts.append(add_box((0, 0.76, 0), (0.88, 0.08, 0.88))) # Flared rim
+cauldron_trim_parts.append(add_box((-0.35, 0.08, -0.35), (0.12, 0.16, 0.12))) # Legs
+cauldron_trim_parts.append(add_box(( 0.35, 0.08, -0.35), (0.12, 0.16, 0.12)))
+cauldron_trim_parts.append(add_box(( 0.00, 0.08,  0.40), (0.12, 0.16, 0.12)))
+cld_trm_v, cld_trm_n, cld_trm_i = merge_meshes(cauldron_trim_parts)
 
-# 3. Mystic Crystal Relic (Interactable)
-# Octagonal glowing alchemical crystal on an obsidian pedestal
-crystal_parts = []
-# Pedestal base
-crystal_parts.append(add_box((0, 0.25, 0), (0.45, 0.5, 0.45)))
-# Pedestal brass ring
-crystal_parts.append(add_box((0, 0.53, 0), (0.35, 0.06, 0.35)))
-# Floating glowing crystal core
-crystal_parts.append(add_box((0, 0.85, 0), (0.24, 0.5, 0.24)))
-crystal_parts.append(add_box((0, 0.85, 0), (0.32, 0.25, 0.16)))
-v_crys, n_crys, i_crys = merge_meshes(crystal_parts)
+export_glb(f"{out_dir}/ancient_cauldron.glb", [
+    {
+        "name": "CauldronBody",
+        "vertices": cld_body_v,
+        "normals": cld_body_n,
+        "indices": cld_body_i,
+        "color": (0.18, 0.19, 0.18, 1.0), # Deep cast iron-bronze
+        "metallic": 0.75,
+        "roughness": 0.52
+    },
+    {
+        "name": "CauldronPatinaTrim",
+        "vertices": cld_trm_v,
+        "normals": cld_trm_n,
+        "indices": cld_trm_i,
+        "color": (0.24, 0.38, 0.32, 1.0), # Verdigris oxidized bronze rim
+        "metallic": 0.65,
+        "roughness": 0.42
+    }
+])
 
-export_glb(f"{out_dir}/mystic_crystal.glb", [{
-    "name": "MysticCrystal",
-    "vertices": v_crys,
-    "normals": n_crys,
-    "indices": i_crys,
-    "color": (0.2, 0.85, 0.95, 1.0), # Luminous aether cyan
-    "metallic": 0.2,
-    "roughness": 0.1,
-    "emissive": (0.1, 0.5, 0.7) # Glow
-}])
+# 3. Mystic Crystal Relic
+crys_ped_v, crys_ped_n, crys_ped_i = add_box((0, 0.25, 0), (0.45, 0.5, 0.45))
+crys_ring_v, crys_ring_n, crys_ring_i = add_box((0, 0.53, 0), (0.35, 0.06, 0.35))
+
+crys_core_parts = []
+crys_core_parts.append(add_box((0, 0.85, 0), (0.24, 0.5, 0.24)))
+crys_core_parts.append(add_box((0, 0.85, 0), (0.32, 0.25, 0.16)))
+crys_core_v, crys_core_n, crys_core_i = merge_meshes(crys_core_parts)
+
+export_glb(f"{out_dir}/mystic_crystal.glb", [
+    {
+        "name": "PedestalBase",
+        "vertices": crys_ped_v,
+        "normals": crys_ped_n,
+        "indices": crys_ped_i,
+        "color": (0.09, 0.09, 0.11, 1.0), # Deep obsidian
+        "metallic": 0.15,
+        "roughness": 0.30
+    },
+    {
+        "name": "PedestalRing",
+        "vertices": crys_ring_v,
+        "normals": crys_ring_n,
+        "indices": crys_ring_i,
+        "color": (0.70, 0.55, 0.18, 1.0), # Forged brass socket
+        "metallic": 0.85,
+        "roughness": 0.30
+    },
+    {
+        "name": "CrystalCore",
+        "vertices": crys_core_v,
+        "normals": crys_core_n,
+        "indices": crys_core_i,
+        "color": (0.25, 0.85, 1.0, 1.0), # Luminous azure
+        "metallic": 0.20,
+        "roughness": 0.15,
+        "emissive": (0.25, 0.75, 1.2)
+    }
+])
 
 # 4. Wall Torch Sconce
-torch_parts = []
-# Wall plate
-torch_parts.append(add_box((0, 0, -0.05), (0.14, 0.4, 0.06)))
-# Iron arm angled outward
-torch_parts.append(add_box((0, 0.08, 0.15), (0.06, 0.06, 0.35)))
-# Cup / sconce
-torch_parts.append(add_box((0, 0.18, 0.30), (0.16, 0.14, 0.16)))
-# Glowing flame ember
-torch_parts.append(add_box((0, 0.32, 0.30), (0.12, 0.18, 0.12)))
-v_trc, n_trc, i_trc = merge_meshes(torch_parts)
+trc_bracket_parts = []
+trc_bracket_parts.append(add_box((0, 0, -0.05), (0.14, 0.4, 0.06)))
+trc_bracket_parts.append(add_box((0, 0.08, 0.15), (0.06, 0.06, 0.35)))
+trc_brk_v, trc_brk_n, trc_brk_i = merge_meshes(trc_bracket_parts)
 
-export_glb(f"{out_dir}/wall_torch.glb", [{
-    "name": "WallTorch",
-    "vertices": v_trc,
-    "normals": n_trc,
-    "indices": i_trc,
-    "color": (0.95, 0.55, 0.15, 1.0), # Warm golden flame
-    "metallic": 0.3,
-    "roughness": 0.5,
-    "emissive": (0.9, 0.4, 0.05) # Radiant flame warmth
-}])
+trc_cup_v, trc_cup_n, trc_cup_i = add_box((0, 0.18, 0.30), (0.16, 0.14, 0.16))
+trc_flame_v, trc_flame_n, trc_flame_i = add_box((0, 0.32, 0.30), (0.12, 0.18, 0.12))
+
+export_glb(f"{out_dir}/wall_torch.glb", [
+    {
+        "name": "TorchBracket",
+        "vertices": trc_brk_v,
+        "normals": trc_brk_n,
+        "indices": trc_brk_i,
+        "color": (0.10, 0.10, 0.12, 1.0), # Forged black iron
+        "metallic": 0.85,
+        "roughness": 0.35
+    },
+    {
+        "name": "TorchCup",
+        "vertices": trc_cup_v,
+        "normals": trc_cup_n,
+        "indices": trc_cup_i,
+        "color": (0.48, 0.38, 0.18, 1.0), # Antique brass sconce
+        "metallic": 0.80,
+        "roughness": 0.35
+    },
+    {
+        "name": "TorchFlame",
+        "vertices": trc_flame_v,
+        "normals": trc_flame_n,
+        "indices": trc_flame_i,
+        "color": (1.0, 0.65, 0.12, 1.0), # Radiant fire ember
+        "emissive": (1.8, 0.95, 0.20)
+    }
+])
 
 # 5. Ancient Alchemy Academy Test Room
-# Room dimensions: Width 10.0m (-5 to +5), Depth 12.0m (-6 to +6), Height 3.8m
-# Includes stone floor, 4 surrounding stone walls, arched doorway passage, stone pillars
-room_parts = []
-# Floor (10x12m)
-room_parts.append(add_box((0, -0.05, 0), (10.0, 0.1, 12.0)))
-# Ceiling (10x12m)
-room_parts.append(add_box((0, 3.85, 0), (10.0, 0.1, 12.0)))
+# Multi-mesh architecture: Floor, FloorBorder, Ceiling, Walls, Doorway Arch, Pillar Shafts, Pillar Plinths
+rm_floor_parts = []
+# Main chamber floor (10x12m)
+rm_floor_parts.append(add_box((0, -0.05, 0), (9.4, 0.1, 11.4)))
+# Doorway threshold paving connecting room to exterior
+rm_floor_parts.append(add_box((0, -0.05, -5.95), (2.2, 0.1, 0.6)))
+# Minimal safe exterior landing terrace for testing doorway traversal
+rm_floor_parts.append(add_box((0, -0.05, -7.85), (4.6, 0.1, 3.2)))
+rm_floor_v, rm_floor_n, rm_floor_i = merge_meshes(rm_floor_parts)
+
+rm_border_parts = []
+rm_border_parts.append(add_box((-4.85, 0.02, 0), (0.3, 0.06, 12.0)))
+rm_border_parts.append(add_box(( 4.85, 0.02, 0), (0.3, 0.06, 12.0)))
+rm_border_parts.append(add_box((0, 0.02,  5.85), (9.4, 0.06, 0.3)))
+# North wall interior curbs flanking the doorway (opening from -1.05 to 1.05 kept completely flush)
+rm_border_parts.append(add_box((-2.95, 0.02, -5.85), (3.8, 0.06, 0.3)))
+rm_border_parts.append(add_box(( 2.95, 0.02, -5.85), (3.8, 0.06, 0.3)))
+# Exterior landing safety balustrades (0.5m high stone perimeter)
+rm_border_parts.append(add_box((-2.35, 0.25, -7.85), (0.25, 0.5, 3.2)))
+rm_border_parts.append(add_box(( 2.35, 0.25, -7.85), (0.25, 0.5, 3.2)))
+rm_border_parts.append(add_box((0.0, 0.25, -9.5), (4.95, 0.5, 0.25)))
+# Balustrade returns connecting to outer north wall
+rm_border_parts.append(add_box((-1.70, 0.25, -6.15), (1.1, 0.5, 0.25)))
+rm_border_parts.append(add_box(( 1.70, 0.25, -6.15), (1.1, 0.5, 0.25)))
+rm_brd_v, rm_brd_n, rm_brd_i = merge_meshes(rm_border_parts)
+
+rm_ceil_v, rm_ceil_n, rm_ceil_i = add_box((0, 3.85, 0), (10.0, 0.1, 12.0))
+
+rm_wall_parts = []
 # North Wall with Doorway (-Z): Left segment, right segment, lintel above door
-# Doorway is at center X in [-1.0, 1.0], height 2.5m
-room_parts.append(add_box((-3.0, 1.9, -6.0), (4.0, 3.8, 0.4))) # West part of North wall
-room_parts.append(add_box(( 3.0, 1.9, -6.0), (4.0, 3.8, 0.4))) # East part of North wall
-room_parts.append(add_box(( 0.0, 3.15, -6.0), (2.0, 1.3, 0.4))) # Lintel above doorway
-# Doorway frame trim
-room_parts.append(add_box((-1.05, 1.25, -6.0), (0.15, 2.5, 0.5)))
-room_parts.append(add_box(( 1.05, 1.25, -6.0), (0.15, 2.5, 0.5)))
-room_parts.append(add_box(( 0.00, 2.55, -6.0), (2.25, 0.15, 0.5)))
+rm_wall_parts.append(add_box((-3.0, 1.9, -6.0), (4.0, 3.8, 0.4)))
+rm_wall_parts.append(add_box(( 3.0, 1.9, -6.0), (4.0, 3.8, 0.4)))
+rm_wall_parts.append(add_box(( 0.0, 3.15, -6.0), (2.0, 1.3, 0.4)))
+# South Wall (+Z)
+rm_wall_parts.append(add_box((0, 1.9, 6.0), (10.0, 3.8, 0.4)))
+# West Wall (-X)
+rm_wall_parts.append(add_box((-5.0, 1.9, 0), (0.4, 3.8, 12.0)))
+# East Wall (+X)
+rm_wall_parts.append(add_box(( 5.0, 1.9, 0), (0.4, 3.8, 12.0)))
+rm_wll_v, rm_wll_n, rm_wll_i = merge_meshes(rm_wall_parts)
 
-# South Wall (+Z): Solid
-room_parts.append(add_box((0, 1.9, 6.0), (10.0, 3.8, 0.4)))
-# West Wall (-X): Solid
-room_parts.append(add_box((-5.0, 1.9, 0), (0.4, 3.8, 12.0)))
-# East Wall (+X): Solid
-room_parts.append(add_box(( 5.0, 1.9, 0), (0.4, 3.8, 12.0)))
+rm_arch_parts = []
+# Doorway frame trim: Left jamb, right jamb, arched header lintel
+rm_arch_parts.append(add_box((-1.05, 1.25, -6.0), (0.15, 2.5, 0.5)))
+rm_arch_parts.append(add_box(( 1.05, 1.25, -6.0), (0.15, 2.5, 0.5)))
+rm_arch_parts.append(add_box(( 0.00, 2.55, -6.0), (2.25, 0.15, 0.5)))
+rm_arch_v, rm_arch_n, rm_arch_i = merge_meshes(rm_arch_parts)
 
-# 2 Vaulted Stone Pillars flanking the center aisle
-pillar_size = (0.6, 3.8, 0.6)
-room_parts.append(add_box((-2.2, 1.9, -2.0), pillar_size))
-room_parts.append(add_box(( 2.2, 1.9, -2.0), pillar_size))
-room_parts.append(add_box((-2.2, 1.9,  2.0), pillar_size))
-room_parts.append(add_box(( 2.2, 1.9,  2.0), pillar_size))
+rm_pillar_shaft_parts = []
+rm_pillar_base_parts = []
+for px, pz in [(-2.2, -2.0), (2.2, -2.0), (-2.2, 2.0), (2.2, 2.0)]:
+    # Plinth base
+    rm_pillar_base_parts.append(add_box((px, 0.18, pz), (0.72, 0.36, 0.72)))
+    # Shaft
+    rm_pillar_shaft_parts.append(add_box((px, 1.90, pz), (0.56, 3.08, 0.56)))
+    # Capital
+    rm_pillar_base_parts.append(add_box((px, 3.62, pz), (0.72, 0.36, 0.72)))
 
-v_rm, n_rm, i_rm = merge_meshes(room_parts)
+rm_pshaft_v, rm_pshaft_n, rm_pshaft_i = merge_meshes(rm_pillar_shaft_parts)
+rm_pbase_v, rm_pbase_n, rm_pbase_i = merge_meshes(rm_pillar_base_parts)
 
-export_glb(f"{out_dir}/academy_room.glb", [{
-    "name": "AcademyRoom",
-    "vertices": v_rm,
-    "normals": n_rm,
-    "indices": i_rm,
-    "color": (0.35, 0.33, 0.38, 1.0), # Mystic weathered dark stone
-    "metallic": 0.05,
-    "roughness": 0.90
-}])
+export_glb(f"{out_dir}/academy_room.glb", [
+    {
+        "name": "FloorFlagstones",
+        "vertices": rm_floor_v,
+        "normals": rm_floor_n,
+        "indices": rm_floor_i,
+        "color": (0.17, 0.18, 0.21, 1.0), # Dark slate stone paving
+        "metallic": 0.05,
+        "roughness": 0.78
+    },
+    {
+        "name": "FloorBorderCurb",
+        "vertices": rm_brd_v,
+        "normals": rm_brd_n,
+        "indices": rm_brd_i,
+        "color": (0.12, 0.12, 0.14, 1.0), # Dark perimeter border
+        "metallic": 0.05,
+        "roughness": 0.85
+    },
+    {
+        "name": "CeilingVault",
+        "vertices": rm_ceil_v,
+        "normals": rm_ceil_n,
+        "indices": rm_ceil_i,
+        "color": (0.08, 0.07, 0.09, 1.0), # Vaulted subterranean ceiling shadow
+        "metallic": 0.02,
+        "roughness": 0.95
+    },
+    {
+        "name": "WallsAshlar",
+        "vertices": rm_wll_v,
+        "normals": rm_wll_n,
+        "indices": rm_wll_i,
+        "color": (0.24, 0.23, 0.26, 1.0), # Weathered academy masonry
+        "metallic": 0.05,
+        "roughness": 0.88
+    },
+    {
+        "name": "DoorwayPortalFrame",
+        "vertices": rm_arch_v,
+        "normals": rm_arch_n,
+        "indices": rm_arch_i,
+        "color": (0.14, 0.13, 0.16, 1.0), # Dark carved granite archway
+        "metallic": 0.15,
+        "roughness": 0.65
+    },
+    {
+        "name": "PillarShafts",
+        "vertices": rm_pshaft_v,
+        "normals": rm_pshaft_n,
+        "indices": rm_pshaft_i,
+        "color": (0.27, 0.26, 0.29, 1.0), # Chiseled stone column shafts
+        "metallic": 0.05,
+        "roughness": 0.85
+    },
+    {
+        "name": "PillarBases",
+        "vertices": rm_pbase_v,
+        "normals": rm_pbase_n,
+        "indices": rm_pbase_i,
+        "color": (0.13, 0.12, 0.15, 1.0), # Dark basalt column plinths & capitals
+        "metallic": 0.15,
+        "roughness": 0.60
+    }
+])
 
 # 6. Academy Sanctum Door (Interactable Door)
-# Sits in North archway at Z = -5.9. Width 1.9m, height 2.45m
-door_parts = []
-# Heavy dark oak slab
-door_parts.append(add_box((0, 1.25, 0), (1.9, 2.45, 0.12)))
-# 3 Iron reinforcement bands front & back
+door_slab_v, door_slab_n, door_slab_i = add_box((0, 1.25, 0), (1.9, 2.45, 0.12))
+
+door_iron_parts = []
 for z_sign in [1.0, -1.0]:
     z_pos = z_sign * 0.07
-    door_parts.append(add_box((0, 0.40, z_pos), (1.92, 0.10, 0.04)))
-    door_parts.append(add_box((0, 1.25, z_pos), (1.92, 0.10, 0.04)))
-    door_parts.append(add_box((0, 2.10, z_pos), (1.92, 0.10, 0.04)))
-# Iron knocker / handle on front
-door_parts.append(add_box((0.55, 1.20, 0.10), (0.12, 0.16, 0.06)))
-v_door, n_door, i_door = merge_meshes(door_parts)
+    door_iron_parts.append(add_box((0, 0.40, z_pos), (1.92, 0.10, 0.04)))
+    door_iron_parts.append(add_box((0, 1.25, z_pos), (1.92, 0.10, 0.04)))
+    door_iron_parts.append(add_box((0, 2.10, z_pos), (1.92, 0.10, 0.04)))
+# Heavy iron door pull ring / knocker
+door_iron_parts.append(add_box((0.55, 1.20, 0.10), (0.12, 0.16, 0.06)))
+door_iron_parts.append(add_box((-0.55, 1.20, -0.10), (0.12, 0.16, 0.06)))
+door_irn_v, door_irn_n, door_irn_i = merge_meshes(door_iron_parts)
 
-export_glb(f"{out_dir}/academy_door.glb", [{
-    "name": "AcademyDoor",
-    "vertices": v_door,
-    "normals": n_door,
-    "indices": i_door,
-    "color": (0.24, 0.16, 0.11, 1.0), # Heavy aged dark ironwood
-    "metallic": 0.25,
-    "roughness": 0.70
-}])
+export_glb(f"{out_dir}/academy_door.glb", [
+    {
+        "name": "DoorWoodSlab",
+        "vertices": door_slab_v,
+        "normals": door_slab_n,
+        "indices": door_slab_i,
+        "color": (0.25, 0.16, 0.10, 1.0), # Weathered dark oak planks
+        "metallic": 0.08,
+        "roughness": 0.70
+    },
+    {
+        "name": "DoorIronHardware",
+        "vertices": door_irn_v,
+        "normals": door_irn_n,
+        "indices": door_irn_i,
+        "color": (0.10, 0.10, 0.12, 1.0), # Forged black iron bands & knocker
+        "metallic": 0.85,
+        "roughness": 0.35
+    }
+])
 
 # 7. Silver Herb Cutting Collectible Prop (Interactable Pick-up)
-# Sits on the alchemy table at (0.7, 0.91, -3.2)
-herb_parts = []
-# Bronze offering dish
-herb_parts.append(add_box((0, 0.02, 0), (0.32, 0.04, 0.32)))
-# Shimmering silver leaf clusters
-herb_parts.append(add_box((0.00, 0.08,  0.00), (0.20, 0.10, 0.20)))
-herb_parts.append(add_box((0.05, 0.14, -0.02), (0.15, 0.12, 0.14)))
-herb_parts.append(add_box((-0.04, 0.12, 0.03), (0.14, 0.10, 0.15)))
-v_herb, n_herb, i_herb = merge_meshes(herb_parts)
+dish_v, dish_n, dish_i = add_box((0, 0.02, 0), (0.32, 0.04, 0.32))
 
-export_glb(f"{out_dir}/silver_herb.glb", [{
-    "name": "SilverHerb",
-    "vertices": v_herb,
-    "normals": n_herb,
-    "indices": i_herb,
-    "color": (0.75, 0.95, 0.88, 1.0), # Luminous shimmering silver leaf
-    "metallic": 0.35,
-    "roughness": 0.25,
-    "emissive": (0.20, 0.45, 0.35) # Soft alchemical luminescence
-}])
+herb_foliage_parts = []
+herb_foliage_parts.append(add_box((0.00, 0.08,  0.00), (0.20, 0.10, 0.20)))
+herb_foliage_parts.append(add_box((0.05, 0.14, -0.02), (0.15, 0.12, 0.14)))
+herb_foliage_parts.append(add_box((-0.04, 0.12, 0.03), (0.14, 0.10, 0.15)))
+herb_fol_v, herb_fol_n, herb_fol_i = merge_meshes(herb_foliage_parts)
+
+export_glb(f"{out_dir}/silver_herb.glb", [
+    {
+        "name": "OfferingDish",
+        "vertices": dish_v,
+        "normals": dish_n,
+        "indices": dish_i,
+        "color": (0.42, 0.33, 0.18, 1.0), # Antique bronze bowl
+        "metallic": 0.85,
+        "roughness": 0.35
+    },
+    {
+        "name": "SilverHerbLeaves",
+        "vertices": herb_fol_v,
+        "normals": herb_fol_n,
+        "indices": herb_fol_i,
+        "color": (0.55, 0.95, 0.75, 1.0), # Luminous shimmering silver-emerald leaf
+        "metallic": 0.25,
+        "roughness": 0.20,
+        "emissive": (0.35, 0.75, 0.50) # Mystical luminescence
+    }
+])
 
 print("All GLB assets successfully generated!")

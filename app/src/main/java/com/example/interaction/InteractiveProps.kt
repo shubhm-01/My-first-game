@@ -19,8 +19,8 @@ enum class DoorState {
 class AcademyDoor(
   override val entityId: String = "door_atrium_gate",
   override val displayName: String = "Academy Sanctum Door",
-  override val position: Position3D = Position3D(0.0f, 1.5f, -5.9f),
-  override val boundingRadius: Float = 1.35f,
+  override val position: Position3D = Position3D(0.0f, 1.6f, -5.9f),
+  override val boundingRadius: Float = 1.55f,
   var collisionSystem: CollisionSystem? = null,
   initialState: DoorState = DoorState.CLOSED
 ) : SpatialInteractable {

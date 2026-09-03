@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
+import com.google.android.filament.LightManager
 import com.google.android.filament.Skybox
 import dev.romainguy.kotlin.math.Float3
 import dev.romainguy.kotlin.math.Float4
@@ -13,7 +14,9 @@ import io.github.sceneview.environment.Environment
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
 import io.github.sceneview.node.CameraNode
+import io.github.sceneview.node.LightNode
 import io.github.sceneview.node.ModelNode
+import io.github.sceneview.node.Node
 import io.github.sceneview.rememberCameraNode
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberEnvironment
@@ -50,7 +53,7 @@ class AcademySceneHolder(
       try {
         // 65.0 degrees vertical FOV in landscape provides ~100 degrees horizontal FOV without fish-eye
         cameraNode.camera.setLensProjection(65.0, aspect, 0.05, 100.0)
-        cameraNode.camera.setExposure(4.0f, 1.0f / 45.0f, 100.0f)
+        cameraNode.camera.setExposure(3.5f, 1.0f / 30.0f, 100.0f)
       } catch (ignored: Throwable) {}
     }
   }
@@ -103,19 +106,31 @@ fun Academy3DViewport(
     )
   }
 
-  // First-person camera with EV 9.5 exposure calibrated to candle/torch lit medieval stone halls
+  // First-person camera with EV 8.5 exposure calibrated for torchlit subterranean stone sanctum
   val cameraNode = rememberCameraNode(engine = engine).apply {
     position = Position(0.0f, 1.7f, 2.8f)
     rotation = Rotation(0.0f, 0.0f, 0.0f)
     camera.setLensProjection(65.0, 16.0 / 9.0, 0.05, 100.0)
-    camera.setExposure(4.0f, 1.0f / 45.0f, 100.0f)
+    camera.setExposure(3.5f, 1.0f / 30.0f, 100.0f)
   }
 
-  // Warm amber directional key light (14,000 lux) angled naturally from the upper vaulted ceiling
+  // Warm golden-amber directional key light representing high vaulted torch sconces
   val mainLightNode = rememberMainLightNode(engine = engine).apply {
-    intensity = 14_000.0f
-    color = Float4(1.0f, 0.92f, 0.82f, 1.0f)
-    lightDirection = Float3(0.25f, -0.85f, -0.45f)
+    intensity = 550.0f
+    color = Float4(1.0f, 0.82f, 0.60f, 1.0f)
+    lightDirection = Float3(0.20f, -0.75f, -0.62f)
+  }
+
+  // Cool mystic fill light preventing crushed shadows while preserving dark stone depth
+  val fillLightNode = remember(engine) {
+    LightNode(
+      engine = engine,
+      type = LightManager.Type.DIRECTIONAL
+    ) {
+      color(0.38f, 0.44f, 0.58f)
+      intensity(80.0f)
+      direction(-0.20f, 0.60f, 0.77f)
+    }
   }
 
   val holder = remember(cameraNode) {
@@ -147,6 +162,9 @@ fun Academy3DViewport(
 
   val childNodes = rememberNodes {
     var count = 0
+
+    // Ambient bounce fill light
+    add(fillLightNode)
 
     // 1. Academy Room Shell (Walls, vaulted ceiling, pillars, archways, floor)
     if (roomModel != null) {

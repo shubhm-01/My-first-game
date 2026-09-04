@@ -116,6 +116,26 @@ class AlchemistAudioController(
             // Crystal pickup chime (two rapid upward harmonic notes 520Hz -> 780Hz)
             playProceduralPickup(sampleRate, 0.22f, volume * 0.5f)
           }
+          SoundEffect.AETHER_HUM -> {
+            // Shimmering 220Hz + 330Hz harmonic hum
+            playProceduralDualTone(sampleRate, 0.6f, 220.0f, 330.0f, volume * 0.4f)
+          }
+          SoundEffect.METALLIC_DISTANT_CLANG -> {
+            // Distant heavy metallic gate impact with slow reverb tail
+            playProceduralDualTone(sampleRate, 0.7f, 98.0f, 294.0f, volume * 0.5f)
+          }
+          SoundEffect.MEMORY_RESONANCE -> {
+            // Ethereal crystalline chord (A major: 440Hz -> 554Hz -> 659Hz)
+            playProceduralMemoryResonance(sampleRate, 0.8f, volume * 0.6f)
+          }
+          SoundEffect.CONTAINMENT_ALERT -> {
+            // Emergency containment alert pulse
+            playProceduralDualTone(sampleRate, 0.35f, 587.0f, 440.0f, volume * 0.45f)
+          }
+          SoundEffect.FAINT_VOICE_WHISPER -> {
+            // Filtered breath whisper burst
+            playProceduralBurst(sampleRate, 0.25f, 180.0f, volume * 0.2f)
+          }
           else -> {
             playProceduralBurst(sampleRate, 0.04f, 220.0f, volume * 0.2f)
           }
@@ -194,6 +214,49 @@ class AlchemistAudioController(
       phase2 += 2.0 * Math.PI * (freq * 2.0f) / sampleRate
     }
 
+    playShortAudioBuffer(sampleRate, buffer)
+  }
+
+  private fun playProceduralDualTone(sampleRate: Int, durationSec: Float, freq1: Float, freq2: Float, volume: Float) {
+    val numSamples = (sampleRate * durationSec).toInt()
+    val buffer = ShortArray(numSamples)
+    var phase1 = 0.0
+    var phase2 = 0.0
+
+    for (i in 0 until numSamples) {
+      val progress = i.toFloat() / numSamples
+      val envelope = sin(progress * Math.PI.toFloat()) * kotlin.math.exp(-progress * 2.0).toFloat()
+      val sample = ((sin(phase1) * 0.6f + sin(phase2) * 0.4f) * envelope * volume * Short.MAX_VALUE).toInt().toShort()
+      buffer[i] = sample
+      phase1 += 2.0 * Math.PI * freq1 / sampleRate
+      phase2 += 2.0 * Math.PI * freq2 / sampleRate
+    }
+    playShortAudioBuffer(sampleRate, buffer)
+  }
+
+  private fun playProceduralMemoryResonance(sampleRate: Int, durationSec: Float, volume: Float) {
+    val numSamples = (sampleRate * durationSec).toInt()
+    val buffer = ShortArray(numSamples)
+    var phase1 = 0.0
+    var phase2 = 0.0
+    var phase3 = 0.0
+    // Ethereal chord: 440Hz (A4), 554.37Hz (C#5), 659.25Hz (E5)
+    val freq1 = 440.0
+    val freq2 = 554.37
+    val freq3 = 659.25
+
+    for (i in 0 until numSamples) {
+      val progress = i.toFloat() / numSamples
+      // Gentle attack followed by shimmering slow decay
+      val attack = (progress * 5.0f).coerceAtMost(1.0f)
+      val decay = kotlin.math.exp(-progress * 2.5).toFloat()
+      val shimmer = 1.0f + 0.15f * sin(progress * 20.0 * Math.PI).toFloat()
+      val sample = ((sin(phase1) * 0.45 + sin(phase2) * 0.35 + sin(phase3) * 0.2) * attack * decay * shimmer * volume * Short.MAX_VALUE).toInt().toShort()
+      buffer[i] = sample
+      phase1 += 2.0 * Math.PI * freq1 / sampleRate
+      phase2 += 2.0 * Math.PI * freq2 / sampleRate
+      phase3 += 2.0 * Math.PI * freq3 / sampleRate
+    }
     playShortAudioBuffer(sampleRate, buffer)
   }
 

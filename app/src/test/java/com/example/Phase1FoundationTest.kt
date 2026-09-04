@@ -43,6 +43,25 @@ class Phase1FoundationTest {
   }
 
   @Test
+  fun testHorizontalTouchLookDirection() {
+    val controller = PlayerController(
+      initialPosition = Position3D(0.0f, 1.7f, 0.0f),
+      initialRotation = Rotation2D(yaw = 0.0f, pitch = 0.0f)
+    )
+
+    // Swipe RIGHT (deltaX > 0) -> camera must look/turn RIGHT (forward ray dirX > 0)
+    controller.applyLookDelta(deltaX = 100.0f, deltaY = 0.0f)
+    val (rightDirX, _, _) = controller.getForwardRayDirection()
+    assertTrue("Swipe RIGHT (deltaX > 0) must turn camera look direction RIGHT (+X)", rightDirX > 0.0f)
+
+    // Reset and swipe LEFT (deltaX < 0) -> camera must look/turn LEFT (forward ray dirX < 0)
+    controller.reset(spawnYaw = 0.0f)
+    controller.applyLookDelta(deltaX = -100.0f, deltaY = 0.0f)
+    val (leftDirX, _, _) = controller.getForwardRayDirection()
+    assertTrue("Swipe LEFT (deltaX < 0) must turn camera look direction LEFT (-X)", leftDirX < 0.0f)
+  }
+
+  @Test
   fun testPlayerControllerPitchClamping() {
     val controller = PlayerController()
 

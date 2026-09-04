@@ -29,13 +29,35 @@ sealed class GameEvent {
   data class AbilityUnlocked(val abilityName: String) : GameEvent()
   data class AreaTransition(val fromAreaId: String, val toAreaId: String) : GameEvent()
   data class MessageEmitted(val text: String) : GameEvent()
+
+  // Investigation & Evidence System (Phase 3)
+  data class EvidenceDiscovered(val evidenceId: String, val title: String, val type: String) : GameEvent()
+  data class FactUnlocked(val factId: String, val title: String) : GameEvent()
+  data class JournalUpdated(val category: String, val totalEntries: Int) : GameEvent()
+  data class InvestigationProgressChanged(val progressFraction: Float, val discoveredCount: Int) : GameEvent()
+
+  // Variable Investigation & Environmental Puzzle System (Phase 4)
+  data class InvestigationScenarioStarted(val scenarioId: String, val title: String) : GameEvent()
+  data class EvidencePoolGenerated(val poolId: String, val selectedEvidenceIds: List<String>) : GameEvent()
+  data class PuzzleConfigured(val puzzleId: String, val configurationId: String) : GameEvent()
+  data class PuzzleSolved(val puzzleId: String) : GameEvent()
+  data class PuzzleReset(val puzzleId: String) : GameEvent()
+  data class InvestigationScenarioCompleted(val scenarioId: String) : GameEvent()
+
+  // Story Progression & Memory Fragments (Phase 5)
+  data class StoryStageAdvanced(val chapterId: String, val chapterTitle: String) : GameEvent()
+  data class StoryFlagChanged(val flag: String, val value: Boolean) : GameEvent()
+  data class MemoryTriggered(val memoryId: String, val title: String, val sensoryEcho: String) : GameEvent()
+  data class MemoryCompleted(val memoryId: String) : GameEvent()
+  data class LocationDiscovered(val locationId: String, val locationName: String) : GameEvent()
+  data class AetherPresenceDetected(val entityId: String, val phenomenonDescription: String) : GameEvent()
 }
 
 /**
  * Lightweight, thread-safe asynchronous event bus for decoupling gameplay systems.
  */
 class GameEventBus {
-  private val _events = MutableSharedFlow<GameEvent>(replay = 1, extraBufferCapacity = 64)
+  private val _events = MutableSharedFlow<GameEvent>(replay = 16, extraBufferCapacity = 64)
   val events: SharedFlow<GameEvent> = _events.asSharedFlow()
 
   fun emit(event: GameEvent) {

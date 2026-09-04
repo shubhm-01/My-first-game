@@ -49,7 +49,7 @@ class PlayerController(
    * [deltaY] rotates pitch (vertical camera tilt).
    */
   fun applyLookDelta(deltaX: Float, deltaY: Float) {
-    val newYaw = (rotation.yaw + deltaX * lookSensitivity) % 360.0f
+    val newYaw = (rotation.yaw - deltaX * lookSensitivity) % 360.0f
     val normalizedYaw = if (newYaw < 0.0f) newYaw + 360.0f else newYaw
     val newPitch = (rotation.pitch - deltaY * lookSensitivity).coerceIn(minPitch, maxPitch)
 

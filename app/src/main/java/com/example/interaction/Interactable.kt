@@ -50,6 +50,7 @@ interface Interactable : SaveableEntity {
     else -> ActionVerb.EXAMINE
   }
   val isInteractive: Boolean
+  val evidenceId: String? get() = null
 
   /**
    * Available contextual actions for this interactable (extensible for multi-action targets).

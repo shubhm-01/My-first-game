@@ -76,7 +76,7 @@ class DoorwayTraversalTest {
 
     // 5. WALK FORWARD THROUGH DOORWAY
     playerController.setMovementInput(0.0f, 1.0f) // push forward towards -Z
-    for (i in 0 until 60) { // ~2 seconds of walking forward
+    for (i in 0 until 30) { // ~1 second of walking forward (~2.8m)
       playerController.update(1.0f / 30.0f)
     }
     playerController.setMovementInput(0.0f, 0.0f)
@@ -110,7 +110,7 @@ class DoorwayTraversalTest {
     // 9. WALK BACK INSIDE
     // With yaw = 180, forward movement walks towards +Z (into the room)
     playerController.setMovementInput(0.0f, 1.0f)
-    for (i in 0 until 60) {
+    for (i in 0 until 30) {
       playerController.update(1.0f / 30.0f)
     }
     playerController.setMovementInput(0.0f, 0.0f)

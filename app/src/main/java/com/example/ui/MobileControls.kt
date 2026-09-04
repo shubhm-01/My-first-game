@@ -67,7 +67,10 @@ fun MobileControlsOverlay(
   loadedAssetCount: Int,
   onMovement: (x: Float, y: Float) -> Unit,
   onLookDelta: (deltaX: Float, deltaY: Float) -> Unit,
-  onInteract: () -> Unit
+  onInteract: () -> Unit,
+  discoveredEvidenceCount: Int = 0,
+  unlockedFactCount: Int = 0,
+  onOpenJournal: () -> Unit = {}
 ) {
   var showDebugHUD by remember { mutableStateOf(false) }
 
@@ -194,6 +197,28 @@ fun MobileControlsOverlay(
       }
 
       Spacer(modifier = Modifier.weight(1f))
+
+      Button(
+        onClick = onOpenJournal,
+        colors = ButtonDefaults.buttonColors(
+          containerColor = if (discoveredEvidenceCount > 0) Color(0xFF3C2F4D) else Color(0x882A2433),
+          contentColor = Color(0xFFE2C48D)
+        ),
+        shape = RoundedCornerShape(8.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF53456B)),
+        modifier = Modifier
+          .testTag("open_journal_button")
+          .height(30.dp)
+      ) {
+        Text(
+          text = if (discoveredEvidenceCount > 0) "JOURNAL ($discoveredEvidenceCount)" else "JOURNAL",
+          fontSize = 10.sp,
+          fontWeight = FontWeight.Bold,
+          letterSpacing = 0.5.sp
+        )
+      }
+
+      Spacer(modifier = Modifier.width(8.dp))
 
       Button(
         onClick = { showDebugHUD = !showDebugHUD },

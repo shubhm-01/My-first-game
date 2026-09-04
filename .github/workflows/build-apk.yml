@@ -37,13 +37,22 @@ jobs:
             base64 -d debug.keystore.base64 > debug.keystore
           fi
 
+      - name: Run Unit Tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload Test APK Artifact
+      - name: Verify APK Generated
+        run: |
+          echo "Verifying generated APKs..."
+          ls -la app/build/outputs/apk/debug/
+          find app/build/outputs/apk/debug/ -name "*.apk" | grep -q . || (echo "Error: No APK found!" && exit 1)
+
+      - name: Upload Milestone APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: the-last-alchemist-debug-apk
+          name: THE-LAST-ALCHEMIST-PHASE-05-STORY-MEMORY-APK
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 

@@ -46,6 +46,7 @@ class CollisionSystem(
   val landingMinX: Float = -2.15f,
   val landingMaxX: Float = 2.15f,
   val landingMinZ: Float = -9.20f,
+  val restrictedMinZ: Float = -14.0f,
   val playerRadius: Float = 0.35f
 ) {
   val boxes = mutableListOf<AABB>()
@@ -55,13 +56,13 @@ class CollisionSystem(
   private val doorBox = AABB(-1.0f, -6.15f, 1.0f, -5.65f)
 
   init {
-    // 1. Vaulted Stone Pillars in chamber (width 0.7 x 0.7)
+    // 1. Vaulted Stone Pillars in Atrium (width 0.7 x 0.7)
     boxes.add(AABB(-2.55f, -2.35f, -1.85f, -1.65f)) // NW Pillar
     boxes.add(AABB(1.85f, -2.35f, 2.55f, -1.65f))  // NE Pillar
     boxes.add(AABB(-2.55f, 1.65f, -1.85f, 2.35f))  // SW Pillar
     boxes.add(AABB(1.85f, 1.65f, 2.55f, 2.35f))   // SE Pillar
 
-    // 2. Alchemy Workbench (Width 2.0, Depth 1.0 at Z = -3.5)
+    // 2. Alchemy Workbench in Atrium (Width 2.0, Depth 1.0 at Z = -3.5)
     boxes.add(AABB(-1.15f, -4.15f, 1.15f, -2.85f))
 
     // 3. Ancient Cauldron prop at (-2.2, -0.5)
@@ -70,19 +71,45 @@ class CollisionSystem(
     // 4. Mystic Crystal Pedestal at (2.2, -0.5)
     circles.add(CircleObstacle(2.2f, -0.5f, 0.45f))
 
-    // 5. North Chamber Wall with Doorway Opening:
+    // 5. North Chamber Wall with Doorway Opening (Z = -5.65)
     // Left segment (West of doorway, opening starts at X = -0.95)
     boxes.add(AABB(-5.5f, -6.25f, -0.95f, -5.65f))
     // Right segment (East of doorway, opening ends at X = 0.95)
     boxes.add(AABB(0.95f, -6.25f, 5.5f, -5.65f))
 
-    // 6. Minimal Safe Exterior Landing Terrace Balustrades (beyond doorway at Z < -5.8)
-    // Left exterior terrace balustrade
-    boxes.add(AABB(-5.0f, -10.0f, landingMinX, -5.8f))
-    // Right exterior terrace balustrade
-    boxes.add(AABB(landingMaxX, -10.0f, 5.0f, -5.8f))
-    // Far exterior landing balustrade (North end of terrace)
-    boxes.add(AABB(-5.0f, -12.0f, 5.0f, landingMinZ))
+    // 6. Restricted Wing Corridor Walls with Room Doorways (Doorways at Z in -9.5f..-7.5f)
+    // West corridor wall: south segment (-5.65 to -7.5) and north segment (-9.5 to -14.0)
+    boxes.add(AABB(-2.5f, -7.5f, -1.45f, -5.65f))
+    boxes.add(AABB(-2.5f, -14.0f, -1.45f, -9.5f))
+
+    // East corridor wall: south segment (-5.65 to -7.5) and north segment (-9.5 to -14.0)
+    boxes.add(AABB(1.45f, -7.5f, 2.5f, -5.65f))
+    boxes.add(AABB(1.45f, -14.0f, 2.5f, -9.5f))
+
+    // 7. Restricted Wing Room Outer Walls
+    // West Research Bay Outer Walls
+    boxes.add(AABB(-6.5f, -12.0f, -5.5f, -6.0f))   // West wall
+    boxes.add(AABB(-6.0f, -12.0f, -1.5f, -11.0f))  // North wall
+    boxes.add(AABB(-6.0f, -6.5f, -1.5f, -5.5f))    // South wall
+
+    // East Archive Outer Walls
+    boxes.add(AABB(5.5f, -12.0f, 6.5f, -6.0f))    // East wall
+    boxes.add(AABB(1.5f, -12.0f, 6.0f, -11.0f))   // North wall
+    boxes.add(AABB(1.5f, -6.5f, 6.0f, -5.5f))     // South wall
+
+    // 8. North Deep Gate Obstacle (Bars entrance to deeper subterranean sector)
+    boxes.add(AABB(-2.5f, -15.0f, 2.5f, -14.0f))
+
+    // 9. Restricted Wing Interior Props & Obstacles
+    // West Bay: Overturned research desk
+    boxes.add(AABB(-3.9f, -9.0f, -3.1f, -8.0f))
+    // West Bay: Shattered containment apparatus
+    circles.add(CircleObstacle(-4.2f, -10.0f, 0.45f))
+
+    // East Archive: Classified archive shelf
+    boxes.add(AABB(3.2f, -8.0f, 4.2f, -7.0f))
+    // East Archive: Resonating Aether Core plinth
+    circles.add(CircleObstacle(3.5f, -9.8f, 0.45f))
 
     // North Doorway barrier initially closed
     boxes.add(doorBox)
@@ -107,24 +134,29 @@ class CollisionSystem(
    * Checks whether a position (x, z) with playerRadius collides with environment geometry or obstacles.
    */
   fun isColliding(x: Float, z: Float): Boolean {
-    // 1. Check all box obstacles (pillars, table, doorway barrier if closed, balustrades)
+    // 1. Check all box obstacles
     for (i in boxes.indices) {
       if (boxes[i].intersectsCircle(x, z, playerRadius)) return true
     }
 
-    // 2. Check all circular props (cauldron, crystal)
+    // 2. Check all circular props
     for (i in circles.indices) {
       if (circles[i].intersects(x, z, playerRadius)) return true
     }
 
     // 3. Environment boundary check
-    val inDoorwayOrLanding = isDoorOpen && x in -1.05f..1.05f && z in (landingMinZ - 0.5f)..roomMaxZ
-    val onLanding = z < roomMinZ && x in landingMinX..landingMaxX && z >= landingMinZ
+    val insideAtrium = x in roomMinX..roomMaxX && z in roomMinZ..roomMaxZ
 
-    if (!inDoorwayOrLanding && !onLanding) {
-      // Inside chamber boundaries
-      if (x - playerRadius < roomMinX || x + playerRadius > roomMaxX) return true
-      if (z - playerRadius < roomMinZ || z + playerRadius > roomMaxZ) return true
+    val inDoorway = isDoorOpen && x in -1.2f..1.2f && z in (restrictedMinZ - 0.5f)..roomMaxZ
+
+    val inRestrictedWing = isDoorOpen && z < roomMinZ && (
+      (x in -2.5f..2.5f && z in (restrictedMinZ - 0.5f)..roomMinZ) || // Corridor & Landing
+      (x in -6.0f..-1.45f && z in -12.0f..-5.65f) ||                  // West Bay
+      (x in 1.45f..6.0f && z in -12.0f..-5.65f)                       // East Archive
+    )
+
+    if (!insideAtrium && !inDoorway && !inRestrictedWing) {
+      return true
     }
 
     return false
@@ -143,23 +175,14 @@ class CollisionSystem(
     var newX = currentX
     var newZ = currentZ
 
-    val isOutside = currentZ < roomMinZ
-    val canTraverseDoorway = isDoorOpen && currentX in -1.05f..1.05f
-
-    // 1. Determine X limits depending on whether in chamber or landing
-    val minLimitX = if (isOutside) landingMinX + playerRadius else roomMinX + playerRadius
-    val maxLimitX = if (isOutside) landingMaxX - playerRadius else roomMaxX - playerRadius
-
-    val candidateX = (currentX + deltaX).coerceIn(minLimitX, maxLimitX)
+    // 1. Test X-axis movement with wall sliding
+    val candidateX = currentX + deltaX
     if (!isColliding(candidateX, currentZ)) {
       newX = candidateX
     }
 
-    // 2. Determine Z limits (unlocked through doorway and on landing)
-    val minLimitZ = if (canTraverseDoorway || isOutside) landingMinZ + playerRadius else roomMinZ + playerRadius
-    val maxLimitZ = roomMaxZ - playerRadius
-
-    val candidateZ = (currentZ + deltaZ).coerceIn(minLimitZ, maxLimitZ)
+    // 2. Test Z-axis movement with wall sliding
+    val candidateZ = currentZ + deltaZ
     if (!isColliding(newX, candidateZ)) {
       newZ = candidateZ
     }

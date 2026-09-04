@@ -173,7 +173,13 @@ fun Academy3DViewport(
           position = Position(0.0f, 0.0f, 0.0f)
         }
       )
-      count++
+      // Phase 5: Restricted Wing Architectural Extension (Corridor, Research Bay & Archive)
+      add(
+        ModelNode(modelInstance = roomModel).apply {
+          position = Position(0.0f, 0.0f, -9.0f)
+        }
+      )
+      count += 2
     }
 
     // 2. Sanctum Door (Interactable doorway barrier at Z = -5.9m)
@@ -183,7 +189,14 @@ fun Academy3DViewport(
       }
       add(node)
       holder.doorNode = node
-      count++
+
+      // Phase 5: Subterranean Sanctum Gate (Deep iron portcullis at Z = -13.9m)
+      add(
+        ModelNode(modelInstance = doorModel).apply {
+          position = Position(0.0f, 0.0f, -13.9f)
+        }
+      )
+      count += 2
     }
 
     // 3. Alchemy Workbench (Interactable examination station at Z = -3.5m)
@@ -193,7 +206,21 @@ fun Academy3DViewport(
           position = Position(0.0f, 0.0f, -3.5f)
         }
       )
-      count++
+      // Phase 5: West Research Bay Overturned Desk
+      add(
+        ModelNode(modelInstance = tableModel).apply {
+          position = Position(-3.5f, 0.0f, -8.5f)
+          rotation = Rotation(0.0f, 25.0f, 5.0f)
+        }
+      )
+      // Phase 5: East Archive Registry Table
+      add(
+        ModelNode(modelInstance = tableModel).apply {
+          position = Position(3.8f, 0.0f, -7.5f)
+          rotation = Rotation(0.0f, -90.0f, 0.0f)
+        }
+      )
+      count += 3
     }
 
     // 4. Silver Herb Cutting (Interactable collectible item resting on workbench)
@@ -206,27 +233,39 @@ fun Academy3DViewport(
       count++
     }
 
-    // 5. Ancient Bronze Cauldron
+    // 5. Ancient Bronze Cauldron & Shattered Research Column
     if (cauldronModel != null) {
       add(
         ModelNode(modelInstance = cauldronModel).apply {
           position = Position(-2.2f, 0.0f, -0.5f)
         }
       )
-      count++
+      // Phase 5: Shattered Distillation Column in West Bay
+      add(
+        ModelNode(modelInstance = cauldronModel).apply {
+          position = Position(-4.2f, 0.0f, -10.0f)
+        }
+      )
+      count += 2
     }
 
-    // 6. Mystic Crystal Relic on Obsidian Pedestal
+    // 6. Mystic Crystal Relic on Obsidian Pedestal & Resonating Aether Core
     if (crystalModel != null) {
       add(
         ModelNode(modelInstance = crystalModel).apply {
           position = Position(2.2f, 0.0f, -0.5f)
         }
       )
-      count++
+      // Phase 5: Resonating Aether Core in East Archive
+      add(
+        ModelNode(modelInstance = crystalModel).apply {
+          position = Position(3.5f, 0.15f, -9.8f)
+        }
+      )
+      count += 2
     }
 
-    // 7. Wall Torches on West and East stone walls
+    // 7. Wall Torches on Stone Walls
     if (torchModel != null) {
       add(
         ModelNode(modelInstance = torchModel).apply {
@@ -239,7 +278,19 @@ fun Academy3DViewport(
           rotation = Rotation(0.0f, 180.0f, 0.0f)
         }
       )
-      count++
+      // Phase 5: Corridor and Subterranean Gate Torches
+      add(
+        ModelNode(modelInstance = torchModel).apply {
+          position = Position(-1.4f, 1.8f, -9.0f)
+        }
+      )
+      add(
+        ModelNode(modelInstance = torchModel).apply {
+          position = Position(1.4f, 1.8f, -9.0f)
+          rotation = Rotation(0.0f, 180.0f, 0.0f)
+        }
+      )
+      count += 4
     }
 
     holder.setLoadedCount(count)

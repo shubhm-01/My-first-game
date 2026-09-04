@@ -22,7 +22,8 @@ class AcademyDoor(
   override val position: Position3D = Position3D(0.0f, 1.6f, -5.9f),
   override val boundingRadius: Float = 1.55f,
   var collisionSystem: CollisionSystem? = null,
-  initialState: DoorState = DoorState.CLOSED
+  initialState: DoorState = DoorState.CLOSED,
+  var isLocked: Boolean = false
 ) : SpatialInteractable {
 
   var state: DoorState = initialState
@@ -31,12 +32,17 @@ class AcademyDoor(
   override val interactionType: InteractionType = InteractionType.DOOR
 
   override val primaryAction: ActionVerb
-    get() = if (state == DoorState.CLOSED) ActionVerb.OPEN else ActionVerb.CLOSE
+    get() = when {
+      isLocked -> ActionVerb.ACTIVATE
+      state == DoorState.CLOSED -> ActionVerb.OPEN
+      else -> ActionVerb.CLOSE
+    }
 
   override val actionPrompt: String
-    get() = when (state) {
-      DoorState.CLOSED -> "OPEN: $displayName"
-      DoorState.OPEN -> "CLOSE: $displayName"
+    get() = when {
+      isLocked -> "INSPECT: Restricted Wing Seal"
+      state == DoorState.CLOSED -> "OPEN: $displayName"
+      else -> "CLOSE: $displayName"
     }
 
   override val isInteractive: Boolean = true
@@ -45,9 +51,21 @@ class AcademyDoor(
     collisionSystem?.setDoorBarrier(state == DoorState.OPEN)
   }
 
+  fun unlock() {
+    isLocked = false
+  }
+
+  fun unlockAndOpen(): GameEvent {
+    isLocked = false
+    state = DoorState.OPEN
+    collisionSystem?.setDoorBarrier(true)
+    return GameEvent.DoorOpened(doorId = entityId)
+  }
+
   override fun captureState(): Map<String, String> {
     return mapOf(
       "state" to state.name,
+      "isLocked" to isLocked.toString(),
       "entityId" to entityId
     )
   }
@@ -59,9 +77,16 @@ class AcademyDoor(
         collisionSystem?.setDoorBarrier(this.state == DoorState.OPEN)
       } catch (ignored: IllegalArgumentException) {}
     }
+    state["isLocked"]?.let {
+      this.isLocked = it.toBoolean()
+    }
   }
 
   override fun onInteract(): GameEvent {
+    if (isLocked) {
+      return GameEvent.InteractionTriggered(targetId = entityId, action = "OPEN_PUZZLE")
+    }
+
     return if (state == DoorState.CLOSED) {
       state = DoorState.OPEN
       collisionSystem?.setDoorBarrier(true)
@@ -71,6 +96,38 @@ class AcademyDoor(
       collisionSystem?.setDoorBarrier(false)
       GameEvent.DoorClosed(doorId = entityId)
     }
+  }
+}
+
+/**
+ * Environmental Alchemical Sealing Mechanism interactable.
+ * Mounted beside the Restricted Wing doorway threshold.
+ */
+class SealingMechanism(
+  override val entityId: String = "prop_sealing_mechanism",
+  override val displayName: String = "Alchemical Sealing Mechanism",
+  override val position: Position3D = Position3D(1.35f, 1.25f, -5.6f),
+  override val boundingRadius: Float = 0.95f,
+  var isSolvedProvider: (() -> Boolean)? = null,
+  override val evidenceId: String = "evidence_pedestal_inscription"
+) : SpatialInteractable {
+
+  override val interactionType: InteractionType = InteractionType.MECHANISM
+  override val primaryAction: ActionVerb = ActionVerb.ACTIVATE
+
+  override val actionPrompt: String
+    get() {
+      val solved = isSolvedProvider?.invoke() == true
+      return if (solved) "INSPECT: Unlocked Sealing Ward" else "INSPECT: Sealing Ward"
+    }
+
+  override val isInteractive: Boolean = true
+
+  override fun captureState(): Map<String, String> = mapOf("entityId" to entityId)
+  override fun restoreState(state: Map<String, String>) {}
+
+  override fun onInteract(): GameEvent {
+    return GameEvent.InteractionTriggered(targetId = entityId, action = "OPEN_PUZZLE")
   }
 }
 
@@ -89,6 +146,7 @@ class AlchemyTable(
   override val primaryAction: ActionVerb = ActionVerb.EXAMINE
   override val actionPrompt: String = "EXAMINE: $displayName"
   override val isInteractive: Boolean = true
+  override val evidenceId: String = "evidence_research_note"
 
   private var examinedCount = 0
 
@@ -139,6 +197,8 @@ class CollectibleIngredient(
 
   override val isInteractive: Boolean
     get() = state == CollectibleState.PRESENT
+
+  override val evidenceId: String = "evidence_silver_cutting"
 
   override fun canInteract(): Boolean = isInteractive
 

@@ -68,10 +68,22 @@ import com.example.interaction.AlchemyTable
 import com.example.interaction.CollectibleIngredient
 import com.example.interaction.InteractionSystem
 import com.example.interaction.RaycastHit
+import com.example.investigation.AcademyEvidenceCatalog
+import com.example.investigation.InvestigationManager
 import com.example.player.PlayerController
+import com.example.puzzle.AlchemicalSealingPuzzle
+import com.example.puzzle.PuzzleStatus
 import com.example.renderer.Academy3DViewport
 import com.example.renderer.AcademyWorldRenderer
 import com.example.renderer.SceneViewProbe
+import com.example.story.AetherPresenceSystem
+import com.example.story.MemoryFragment
+import com.example.story.MemoryManager
+import com.example.story.StoryLocation
+import com.example.story.StoryProgression
+import com.example.ui.AlchemicalPuzzleOverlay
+import com.example.ui.JournalOverlay
+import com.example.ui.MemoryEchoOverlay
 import com.example.ui.MobileControlsOverlay
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
@@ -133,6 +145,33 @@ fun TheLastAlchemistPlayableScreen(
   val worldRenderer = remember { AcademyWorldRenderer().apply { initialize() } }
   val audioController = remember { AlchemistAudioController() }
   val eventBus = remember { GameEventBus() }
+  val investigationManager = remember { AcademyEvidenceCatalog.createDefaultInvestigationManager() }
+  val puzzle = remember { AlchemicalSealingPuzzle() }
+  val storyProgression = remember { StoryProgression() }
+  val memoryManager = remember {
+    val mm = MemoryManager(storyProgression = storyProgression, investigationManager = investigationManager)
+    mm.registerDefaultMemories(seed = 42819L)
+    mm
+  }
+  val aetherPresenceSystem = remember {
+    AetherPresenceSystem(audioController = audioController, eventBus = eventBus)
+  }
+  val scenarioManager = remember {
+    val sm = com.example.investigation.InvestigationScenarioManager(investigationManager, puzzle)
+    val scenario = AcademyEvidenceCatalog.createRestrictedWingScenario()
+    sm.registerScenario(scenario)
+    sm.generateScenarioRun(
+      scenarioId = scenario.scenarioId,
+      seed = 42819L,
+      eventBus = eventBus
+    )
+    sm
+  }
+
+  // Synchronize door lock with puzzle status
+  doorProp.isLocked = puzzle.status != PuzzleStatus.SOLVED
+  interactionSystem.door.isLocked = puzzle.status != PuzzleStatus.SOLVED
+  interactionSystem.sealingMechanism.isSolvedProvider = { puzzle.status == PuzzleStatus.SOLVED }
 
   // Register interactive props into spatial query system
   LaunchedEffect(interactionSystem) {
@@ -147,6 +186,10 @@ fun TheLastAlchemistPlayableScreen(
   var statusMessage by remember { mutableStateOf<String?>(null) }
   var fps by remember { mutableIntStateOf(60) }
   var showPhase0Arch by remember { mutableStateOf(false) }
+  var showJournal by remember { mutableStateOf(false) }
+  var showPuzzle by remember { mutableStateOf(false) }
+  var activeMemoryState by remember { mutableStateOf<MemoryFragment?>(null) }
+  var memoryPlaybackElapsed by remember { mutableStateOf(0.0f) }
 
   // 3. Event Bus Collector: handles audio feedback, visual updates, and status messages cleanly decoupled
   LaunchedEffect(eventBus) {
@@ -177,6 +220,64 @@ fun TheLastAlchemistPlayableScreen(
         is GameEvent.InteractionTriggered -> {
           audioController.playSfx(SoundEffect.MYSTERY_CHIME, 0.4f)
           statusMessage = event.action
+        }
+        is GameEvent.EvidenceDiscovered -> {
+          audioController.playSfx(SoundEffect.MYSTERY_CHIME, 0.75f)
+          statusMessage = "Evidence Recorded: ${event.title}"
+        }
+        is GameEvent.FactUnlocked -> {
+          audioController.playSfx(SoundEffect.MYSTERY_CHIME, 0.9f)
+          statusMessage = "Truth Reconstructed: ${event.title}"
+        }
+        is GameEvent.PuzzleSolved -> {
+          audioController.playSfx(SoundEffect.MYSTERY_CHIME, 1.0f)
+          doorProp.unlockAndOpen()
+          interactionSystem.door.unlockAndOpen()
+          worldRenderer.onDoorStateChanged(true)
+          investigationManager.unlockFact(AcademyEvidenceCatalog.FACT_RESTRICTED_WING_SEALED, eventBus)
+          storyProgression.setFlag("flag_first_puzzle_solved", true)
+          storyProgression.advanceChapterIfReady(
+            evidenceCount = investigationManager.getDiscoveredCount(),
+            unlockedFacts = investigationManager.getUnlockedFactIds(),
+            eventBus = eventBus
+          )
+          scenarioManager.checkCompletion(eventBus)
+          statusMessage = "Ward Harmonized — Restricted Wing Unlocked!"
+        }
+        is GameEvent.PuzzleReset -> {
+          audioController.playSfx(SoundEffect.DOOR_CLOSE, 0.5f)
+          statusMessage = "Sealing mechanism reset to neutral."
+        }
+        is GameEvent.InvestigationScenarioCompleted -> {
+          audioController.playSfx(SoundEffect.MYSTERY_CHIME, 1.0f)
+          statusMessage = "Investigation Scenario Completed!"
+        }
+        is GameEvent.StoryStageAdvanced -> {
+          audioController.playSfx(SoundEffect.MYSTERY_CHIME, 1.0f)
+          statusMessage = "Chapter Advanced: ${event.chapterTitle}"
+        }
+        is GameEvent.MemoryTriggered -> {
+          audioController.playSfx(SoundEffect.MEMORY_RESONANCE, 0.85f)
+          statusMessage = "Aether Resonance: ${event.title}"
+        }
+        is GameEvent.MemoryCompleted -> {
+          audioController.playSfx(SoundEffect.MYSTERY_CHIME, 0.85f)
+          val memTitle = memoryManager.getMemory(event.memoryId)?.title ?: "Aether Echo"
+          statusMessage = "Memory Integrated: $memTitle"
+          storyProgression.setFlag("flag_memory_${event.memoryId}_unlocked", true)
+          investigationManager.unlockFact(AcademyEvidenceCatalog.FACT_AETHER_MEMORIES_PERSIST, eventBus)
+          storyProgression.advanceChapterIfReady(
+            evidenceCount = investigationManager.getDiscoveredCount(),
+            unlockedFacts = investigationManager.getUnlockedFactIds(),
+            eventBus = eventBus
+          )
+        }
+        is GameEvent.LocationDiscovered -> {
+          audioController.playSfx(SoundEffect.UI_CLICK, 0.5f)
+          statusMessage = "Discovered: ${event.locationName}"
+        }
+        is GameEvent.AetherPresenceDetected -> {
+          statusMessage = event.phenomenonDescription
         }
         else -> Unit
       }
@@ -263,6 +364,32 @@ fun TheLastAlchemistPlayableScreen(
           fpsTimer = 0.0f
           playerState = currentPState
         }
+
+        // 5f. Phase 5 Memory playback tick
+        val mem = memoryManager.update(dt)
+        if (activeMemoryState != mem) {
+          activeMemoryState = mem
+        }
+        if (mem != null) {
+          memoryPlaybackElapsed = memoryManager.playbackElapsed
+        }
+
+        // 5g. Phase 5 Spatial location detection and story progression
+        val detectedLoc = StoryLocation.fromPosition(currentPState.position.x, currentPState.position.z)
+        if (detectedLoc != null && storyProgression.currentLocation != detectedLoc) {
+          val wasDiscovered = storyProgression.discoveredLocations.contains(detectedLoc.id)
+          storyProgression.onPlayerMove(currentPState.position.x, currentPState.position.z, eventBus)
+          if (!wasDiscovered) {
+            storyProgression.advanceChapterIfReady(
+              evidenceCount = investigationManager.getDiscoveredCount(),
+              unlockedFacts = investigationManager.getUnlockedFactIds(),
+              eventBus = eventBus
+            )
+          }
+        }
+
+        // 5h. Subtle atmospheric Aether presence
+        aetherPresenceSystem.update(currentPState.position)
       }
     }
   }
@@ -271,9 +398,29 @@ fun TheLastAlchemistPlayableScreen(
   val handleInteraction: () -> Unit = {
     val hit = targetedHit
     if (hit != null && hit.interactable.canInteract()) {
-      val event = hit.interactable.onInteract()
-      if (event != null) {
-        eventBus.emit(event)
+      investigationManager.recordObjectExamined(hit.interactable.entityId)
+      val evidenceId = hit.interactable.evidenceId
+      if (evidenceId != null) {
+        investigationManager.discoverEvidence(evidenceId, eventBus)
+        storyProgression.advanceChapterIfReady(
+          evidenceCount = investigationManager.getDiscoveredCount(),
+          unlockedFacts = investigationManager.getUnlockedFactIds(),
+          eventBus = eventBus
+        )
+      }
+
+      // Check if interacting with the sealing puzzle, a locked door, or a memory relic
+      if (hit.interactable.entityId == "prop_resonating_aether_relic") {
+        memoryManager.triggerMemory("mem_council_mandate")
+      } else if (hit.interactable.entityId == "prop_sealing_mechanism" ||
+        (hit.interactable is AcademyDoor && (hit.interactable as AcademyDoor).isLocked)
+      ) {
+        showPuzzle = true
+      } else {
+        val event = hit.interactable.onInteract()
+        if (event != null) {
+          eventBus.emit(event)
+        }
       }
     }
   }
@@ -297,16 +444,72 @@ fun TheLastAlchemistPlayableScreen(
       targetedHit = targetedHit,
       statusMessage = statusMessage,
       loadedAssetCount = worldRenderer.getLoadedAssetCount(),
+      discoveredEvidenceCount = investigationManager.getDiscoveredCount(),
+      unlockedFactCount = investigationManager.getUnlockedFactCount(),
       onMovement = { x, y ->
         playerController.setMovementInput(x, y)
       },
       onLookDelta = { deltaX, deltaY ->
         playerController.applyLookDelta(deltaX, deltaY)
       },
-      onInteract = handleInteraction
+      onInteract = handleInteraction,
+      onOpenJournal = { showJournal = true }
     )
 
-    // 3. Phase 0 Architecture Inspection Overlay (can be toggled if requested)
+    // 3. Phase 5 Memory Echo Overlay (Non-intrusive ethereal presentation)
+    activeMemoryState?.let { activeMem ->
+      MemoryEchoOverlay(
+        activeMemory = activeMem,
+        playbackElapsed = memoryPlaybackElapsed,
+        onConcludeMemory = {
+          memoryManager.concludeActiveMemory()
+          activeMemoryState = null
+        }
+      )
+    }
+
+    // 4. Investigation Journal & Evidence Inspector Modal Overlay
+    AnimatedVisibility(
+      visible = showJournal,
+      enter = fadeIn(),
+      exit = fadeOut(),
+      modifier = Modifier.fillMaxSize()
+    ) {
+      JournalOverlay(
+        investigationManager = investigationManager,
+        memoryManager = memoryManager,
+        onReplayMemory = { memId ->
+          showJournal = false
+          memoryManager.triggerMemory(memId)
+        },
+        onClose = { showJournal = false }
+      )
+    }
+
+    // 5. Phase 4 Alchemical Sealing Puzzle Overlay
+    AnimatedVisibility(
+      visible = showPuzzle,
+      enter = fadeIn(),
+      exit = fadeOut(),
+      modifier = Modifier.fillMaxSize()
+    ) {
+      AlchemicalPuzzleOverlay(
+        puzzle = puzzle,
+        investigationManager = investigationManager,
+        eventBus = eventBus,
+        audioController = audioController,
+        onClose = { showPuzzle = false },
+        onPuzzleSolved = {
+          doorProp.unlockAndOpen()
+          interactionSystem.door.unlockAndOpen()
+          worldRenderer.onDoorStateChanged(true)
+          investigationManager.unlockFact(AcademyEvidenceCatalog.FACT_RESTRICTED_WING_SEALED, eventBus)
+          scenarioManager.checkCompletion(eventBus)
+        }
+      )
+    }
+
+    // 5. Phase 0 Architecture Inspection Overlay (can be toggled if requested)
     AnimatedVisibility(
       visible = showPhase0Arch,
       enter = fadeIn(),

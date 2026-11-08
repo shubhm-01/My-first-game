@@ -88,7 +88,7 @@ private class PatnaInput {
     var driving = false
     var playerX = -18f
     var playerZ = 18f
-    var carX = -8.5f
+    var carX = -7.5f
     var carZ = 18f
     var carYaw = 0f
     var carSpeed = 0f
@@ -98,7 +98,7 @@ private data class ActorWaypoint(val x: Float, val z: Float, val pause: Float = 
 private data class WorldCollider(val minX: Float, val maxX: Float, val minZ: Float, val maxZ: Float)
 
 private val PATNA_COLLIDERS = listOf(
-    WorldCollider(-38f, -18f, 16f, 32f),   // riverside home
+    WorldCollider(-38f, -20f, 16f, 32f),   // riverside home
     WorldCollider(-62f, -42f, -12f, 4f),   // second home
     WorldCollider(51f, 61f, -37f, -19f),   // Golghar
     WorldCollider(52f, 108f, -48f, -4f),   // mixed-use high-rise
@@ -223,7 +223,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         addModel(HOUSE_GLB, 14f, Position(x = -52f, y = 0f, z = -4f), yaw = 0f)
         // Character assets are physically sized (human height, in metres), not giant scaled props.
         val boy = addModel(MAN_GLB, 1.72f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
-        val girl = addModel(WOMAN_GLB, 1.62f, Position(x = -30f, y = 0.12f, z = 20f), yaw = 180f, walk = true)
+        val girl = addModel(WOMAN_GLB, 1.62f, Position(x = -14f, y = 0.12f, z = 34f), yaw = 180f, walk = true)
         val businessman = addModel(BUSINESSMAN_GLB, 1.72f, Position(x = 34f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
         val farmer = addModel(FARMER_GLB, 1.78f, Position(x = 18f, y = 0.12f, z = -25f), yaw = 90f, walk = true)
         vehicleNode = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 0f)
@@ -272,7 +272,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var nearNpc by remember { mutableStateOf(false) }
     val npcRoute = remember {
         listOf(
-            ActorWaypoint(-30f, 20f, 1.2f),
+            ActorWaypoint(-14f, 34f, 1.2f),
             ActorWaypoint(-8f, 5f, 0.5f),
             ActorWaypoint(23f, -28f, 2.5f),
             ActorWaypoint(-20f, -43f, 5.0f),
@@ -357,8 +357,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         // Screen-up is forward, screen-left is left, relative to the camera heading.
                         val worldX = moveX * cos(input.yaw) - moveZ * sin(input.yaw)
                         val worldZ = -moveX * sin(input.yaw) - moveZ * cos(input.yaw)
-                        val nextX = px + worldX * 3.8f * dt / length
-                        val nextZ = pz + worldZ * 3.8f * dt / length
+                        val nextX = px + worldX * 1.55f * dt / length
+                        val nextZ = pz + worldZ * 1.55f * dt / length
                         // Axis-separated collision response lets the player slide along walls, not through them.
                         if (!hitsWorld(nextX, pz, 0.45f) &&
                             sqrt((nextX - input.carX) * (nextX - input.carX) + (pz - input.carZ) * (pz - input.carZ)) > 3.0f
@@ -377,7 +377,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 // Independent orbit camera: full 360° yaw and adjustable elevation.
                 val followX = if (input.driving) input.carX else px
                 val followZ = if (input.driving) input.carZ else pz
-                val followDistance = if (input.driving) 11.5f else 6.2f
+                val followDistance = if (input.driving) 12.5f else 8.5f
                 cameraNode.position = Position(
                     x = followX + sin(input.yaw) * followDistance,
                     y = input.cameraHeight,
@@ -401,7 +401,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         segment = (segment + 1) % npcRoute.size
                     }
                 } else {
-                    val step = (1.5f * dt).coerceAtMost(distance)
+                    val step = (1.3f * dt).coerceAtMost(distance)
                     npc.position = Position(
                         x = npc.position.x + nx / distance * step,
                         y = 0.12f,

@@ -6,6 +6,8 @@ This branch uses original game code plus remote GLB models from Grab3D. The sour
 |---|---|---|
 | Casual Man (rigged, walk/run) | https://grab3d.com/models/characters/man/ | https://grab3d.com/dl/man-rigged/man-rigged.glb |
 | Casual Woman (rigged, walk/run) | https://grab3d.com/models/characters/woman/ | https://grab3d.com/dl/woman-rigged/woman-rigged.glb |
+| Businessman pedestrian (rigged, walk/run) | https://grab3d.com/models/characters/businessman/ | https://grab3d.com/dl/businessman-rigged/businessman-rigged.glb |
+| Farmer / market worker (rigged, walk/run) | https://grab3d.com/models/characters/farmer/ | https://grab3d.com/dl/farmer-rigged/farmer-rigged.glb |
 | Modern House | https://grab3d.com/models/buildings/modern-house/ | https://grab3d.com/dl/modern-house/modern-house.glb |
 | 1990s SUV | https://grab3d.com/models/vehicles/1990s-suv/ | https://grab3d.com/dl/1990s-suv/1990s-suv.glb |
 | Mangrove Tree | https://grab3d.com/models/nature/mangrove-tree/ | https://grab3d.com/dl/mangrove-tree/mangrove-tree.glb |
@@ -24,4 +26,4 @@ The additional Grab3D bank, university and power-plant models are lightweight PB
 Grab3D licence: https://grab3d.com/license/
 CC0 1.0: https://creativecommons.org/publicdomain/zero/1.0/
 
-The two hero characters use rigged, textured animated models with walk/run takes. The Golghar-inspired landmark, riverfront terrain, ghats, roads, bridge deck, sidewalks and street furniture are generated in the app code. Network access is currently required on first load because the GLB models are fetched by HTTPS at runtime.
+The four active human characters (Aarav, Meera, a businessman and a farmer) use rigged, textured CC0 GLBs with walk/run takes. Human node scale targets are set to human-height ranges (about 1.6–1.8 m), while vehicles and buildings use their metre-scale asset bounds. The world adds three further parked SUVs; collision boxes are authored in game code for the main buildings and parked vehicles. The Golghar-inspired landmark, riverfront terrain, ghats, roads, bridge deck, sidewalks and street furniture are generated in the app code. Network access is currently required on first load because the GLB models are fetched by HTTPS at runtime.

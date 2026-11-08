@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - patna-2047-realistic-world
   workflow_dispatch:
 
 jobs:

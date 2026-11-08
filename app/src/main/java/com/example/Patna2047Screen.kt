@@ -81,11 +81,11 @@ private class PatnaInput {
     var right = false
     // Camera yaw is deliberately unbounded: a full orbit is allowed.
     var yaw = 0f
-    var cameraHeight = 4.3f
+    var cameraHeight = 3.9f
     // Camera target height is the pitch control: swipe up to look towards the horizon/sky.
-    var cameraLookHeight = 2.2f
+    var cameraLookHeight = 2.8f
     var interact = false
-    var driving = false
+    var driving by mutableStateOf(false)
     var playerX = -18f
     var playerZ = 18f
     var carX = -9.5f
@@ -129,7 +129,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     val cameraNode = rememberCameraNode(engine) {
         position = Position(x = -14f, y = 3.4f, z = 29f)
         lookAt(Position(x = -14f, y = 1f, z = 22f))
-        far = 360f
+        far = 1400f
     }
     val sceneNodes = rememberNodes()
     val input = remember { PatnaInput() }
@@ -143,9 +143,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var nearHome by remember { mutableStateOf(false) }
     var nearGolghar by remember { mutableStateOf(false) }
     var nearCar by remember { mutableStateOf(false) }
-    var drivingUi by remember { mutableStateOf(false) }
-    var isDriving by remember { mutableStateOf(false) }
-    var pedestrianNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
+        var pedestrianNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
     var vehicleNode by remember { mutableStateOf<ModelNode?>(null) }
     var trafficNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
 
@@ -400,7 +398,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     val length = sqrt(moveX * moveX + moveZ * moveZ).coerceAtLeast(1f)
                     val moving = moveX != 0f || moveZ != 0f
                     if (lastMoving != moving) {
-                        player.setAnimationSpeed(0, if (moving) 0.95f else 0.12f)
+                        if (moving) player.playAnimation("relaxed walk", 1f, true) else player.playAnimation("idle", 1f, true)
                         lastMoving = moving
                     }
                     if (moving) {
@@ -436,7 +434,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 // Independent orbit camera: full 360° yaw and adjustable elevation.
                 val followX = if (input.driving) input.carX else px
                 val followZ = if (input.driving) input.carZ else pz
-                val followDistance = if (input.driving) 12.5f else 8.5f
+                val followDistance = if (input.driving) 9.5f else 6.0f
                 cameraNode.position = Position(
                     x = followX + sin(input.yaw) * followDistance,
                     y = input.cameraHeight,
@@ -450,7 +448,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 val distance = sqrt(nx * nx + nz * nz)
                 val npcWalking = distance >= 0.65f
                 if (lastNpcWalking != npcWalking) {
-                    npc.setAnimationSpeed(0, if (npcWalking) 0.85f else 0.12f)
+                    if (npcWalking) npc.playAnimation("relaxed walk", 1f, true) else npc.playAnimation("idle", 1f, true)
                     lastNpcWalking = npcWalking
                 }
                 if (distance < 0.65f) {
@@ -495,7 +493,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     lastNear = nowNear
                     nearNpc = nowNear
                 }
-                val carNearby = !input.driving && sqrt((px - input.carX) * (px - input.carX) + (pz - input.carZ) * (pz - input.carZ)) < 15f
+                val carNearby = !input.driving && sqrt((px - input.carX) * (px - input.carX) + (pz - input.carZ) * (pz - input.carZ)) < 6f
                 if (carNearby != nearCar) nearCar = carNearby
                 val homeNearby = sqrt((px + 28f) * (px + 28f) + (pz - 24f) * (pz - 24f)) < 7f
                 if (homeNearby != lastNearHome) {
@@ -551,7 +549,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         change.consume()
                         input.yaw += drag.x * 0.008f
                         // Swipe up raises the look target so the camera can look level/skyward.
-                        input.cameraLookHeight = (input.cameraLookHeight - drag.y * 0.022f).coerceIn(0.35f, 24f)
+                        input.cameraLookHeight = (input.cameraLookHeight - drag.y * 0.034f).coerceIn(0.6f, 22f)
                     }
                 }
         )
@@ -582,7 +580,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Text("LIVE WORLD", color = Color(0xFFFFD99A), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Text(if (loading) loadMessage else "AARAV  •  MEERA  •  GOLGHAR", color = Color.White, fontSize = 9.sp)
-                Text(if (drivingUi) "DRIVING  •  VEHICLE" else "ON FOOT  •  360° CAMERA", color = Color(0xFFB4C5C3), fontSize = 9.sp)
+                Text(if (input.driving) "DRIVING  •  ${input.carSpeed.toInt()} km/h" else "ON FOOT  •  360° CAMERA", color = Color(0xFFB4C5C3), fontSize = 9.sp)
                 Text("Drag right side to orbit / tilt", color = Color(0xFFB4C5C3), fontSize = 9.sp)
             }
         }
@@ -594,7 +592,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Text(
-                if (drivingUi) "▲ GAS  •  ▼ REVERSE/BRAKE  •  ◀ ▶ STEER" else "▲ FORWARD  •  ▼ BACK  •  ◀ ▶ STRAFE",
+                if (input.driving) "▲ GAS  •  ▼ REVERSE/BRAKE  •  ◀ ▶ STEER" else "▲ FORWARD  •  ▼ BACK  •  ◀ ▶ STRAFE",
                 color = Color(0xFFFFD99A), fontSize = 9.sp, fontWeight = FontWeight.Bold
             )
             HoldDirection("▲", { input.forward = it })
@@ -617,23 +615,20 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         input.playerX = input.carX + 2.8f
                         input.playerZ = input.carZ + 1.2f
                         input.driving = false
-                        isDriving = false
                         input.carSpeed = 0f
                         input.yaw = input.carYaw
-                        drivingUi = false
+                        dialogue = "Aarav: Gaadi park kar di. Ab paidal Meera ke paas chalte hain."
                     } else if (nearCar && vehicleNode != null) {
                         input.driving = true
-                        isDriving = true
                         input.carSpeed = 0f
                         input.yaw = input.carYaw
-                        drivingUi = true
-                        dialogue = "Aarav: Seat belt laga li. ▲ accelerate, ▼ reverse/brake, left/right steer."
+                                                 dialogue = "Aarav: Seat belt laga li. ▲ accelerate, ▼ reverse/brake, left/right steer."
                     }
                 },
                 enabled = if (input.driving) true else nearCar && vehicleNode != null,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF66B5A7), contentColor = Color(0xFF142220)),
                 shape = RoundedCornerShape(14.dp)
-            ) { Text(if (isDriving) "EXIT VEHICLE" else "GET IN CAR", fontWeight = FontWeight.Black, letterSpacing = 0.7.sp) }
+            ) { Text(if (input.driving) "EXIT VEHICLE" else "GET IN CAR", fontWeight = FontWeight.Black, letterSpacing = 0.7.sp) }
             Button(
                 onClick = {
                     when {

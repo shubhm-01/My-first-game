@@ -88,7 +88,7 @@ private class PatnaInput {
     var driving = false
     var playerX = -18f
     var playerZ = 18f
-    var carX = -7.5f
+    var carX = -5f
     var carZ = 18f
     var carYaw = 0f
     var carSpeed = 0f
@@ -226,14 +226,14 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         val boy = addModel(MAN_GLB, 1.72f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
         val girl = addModel(WOMAN_GLB, 1.62f, Position(x = -14f, y = 0.12f, z = 34f), yaw = 180f, walk = true)
         val businessman = addModel(BUSINESSMAN_GLB, 1.72f, Position(x = 34f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
-        val farmer = addModel(FARMER_GLB, 1.78f, Position(x = 18f, y = 0.12f, z = -25f), yaw = 90f, walk = true)
+        val farmer = addModel(FARMER_GLB, 1.78f, Position(x = 15f, y = 0.12f, z = -20f), yaw = 90f, walk = true)
         vehicleNode = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 0f)
         // More vehicles make the streets feel occupied; these are parked for now.
         addModel(SUV_GLB, 4.7f, Position(x = 20f, y = 0.12f, z = 66f), yaw = 0f)
         addModel(SUV_GLB, 4.7f, Position(x = 66f, y = 0.12f, z = -76f), yaw = 180f)
         addModel(SUV_GLB, 4.7f, Position(x = -48f, y = 0.12f, z = -88f), yaw = 90f)
         // Two autonomous traffic cars patrol the long north/south avenues.
-        val trafficA = addModel(SUV_GLB, 4.7f, Position(x = 0f, y = 0.12f, z = 180f), yaw = 0f)
+        val trafficA = addModel(SUV_GLB, 4.7f, Position(x = 4f, y = 0.12f, z = 180f), yaw = 0f)
         val trafficB = addModel(SUV_GLB, 4.7f, Position(x = 180f, y = 0.12f, z = -180f), yaw = 180f)
         trafficNodes = listOfNotNull(trafficA, trafficB)
         // Large, textured city silhouettes and real-scale civic buildings widen the skyline.
@@ -315,7 +315,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         var wheelRotation = 0f
         val workerRoutes = listOf(
             listOf(ActorWaypoint(34f, 18f, 1.2f), ActorWaypoint(40f, 18f, 0.6f), ActorWaypoint(40f, 27f, 1.5f), ActorWaypoint(34f, 27f, 0.6f)),
-            listOf(ActorWaypoint(18f, -25f, 1.5f), ActorWaypoint(17f, -31f, 0.6f), ActorWaypoint(27f, -31f, 1.8f), ActorWaypoint(28f, -25f, 0.6f))
+            listOf(ActorWaypoint(15f, -20f, 1.5f), ActorWaypoint(15f, -35f, 0.6f), ActorWaypoint(31f, -35f, 1.8f), ActorWaypoint(31f, -20f, 0.6f))
         )
         val workerSegments = IntArray(pedestrianNodes.size)
         val workerPauses = FloatArray(pedestrianNodes.size)
@@ -463,7 +463,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     lastNear = nowNear
                     nearNpc = nowNear
                 }
-                val carNearby = !input.driving && sqrt((px - input.carX) * (px - input.carX) + (pz - input.carZ) * (pz - input.carZ)) < 11f
+                val carNearby = !input.driving && sqrt((px - input.carX) * (px - input.carX) + (pz - input.carZ) * (pz - input.carZ)) < 15f
                 if (carNearby != nearCar) nearCar = carNearby
                 val homeNearby = sqrt((px + 28f) * (px + 28f) + (pz - 24f) * (pz - 24f)) < 7f
                 if (homeNearby != lastNearHome) {

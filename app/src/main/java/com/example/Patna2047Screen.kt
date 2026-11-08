@@ -57,6 +57,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlinx.coroutines.launch
 
 private const val MAN_GLB = "https://grab3d.com/dl/man-rigged/man-rigged.glb"
 private const val WOMAN_GLB = "https://grab3d.com/dl/woman-rigged/woman-rigged.glb"
@@ -83,8 +84,8 @@ private class PatnaInput {
     var driving = false
     var playerX = -18f
     var playerZ = 18f
-    var carX = -10f
-    var carZ = 23f
+    var carX = -13.5f
+    var carZ = 17.5f
     var carYaw = 0f
     var carSpeed = 0f
 }
@@ -184,7 +185,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         val girl = addModel(WOMAN_GLB, 1.7f, Position(x = -21f, y = 0.12f, z = 20f), yaw = 180f, walk = true)
         vehicleNode = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 180f)
         // Large, textured city silhouettes and real-scale civic buildings widen the skyline.
-        addModel(HIGHRISE_GLB, 118f, Position(x = 80f, y = 0f, z = -26f), yaw = 0f)
+        // Load the large 23 MB tower in parallel so it never blocks the first playable frame.
+        launch { addModel(HIGHRISE_GLB, 118f, Position(x = 80f, y = 0f, z = -26f), yaw = 0f) }
         addModel(BANK_GLB, 18f, Position(x = 70f, y = 0f, z = 28f), yaw = -90f)
         addModel(UNIVERSITY_GLB, 26f, Position(x = -76f, y = 0f, z = 29f), yaw = 0f)
         addModel(POWER_PLANT_GLB, 34f, Position(x = 94f, y = 0f, z = -54f), yaw = 90f)

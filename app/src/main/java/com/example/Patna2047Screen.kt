@@ -117,27 +117,27 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) {
         // First render the complete land, roads and river so the player sees the world immediately.
         sceneNodes += PlaneNode(engine, size = Size(x = 260f, y = 0f, z = 260f), normal = Direction(y = 1f), materialInstance = grass)
-        sceneNodes += PlaneNode(engine, size = Size(x = 240f, y = 0f, z = 48f), normal = Direction(y = 1f), materialInstance = water, position = Position(x = 0f, y = 0.035f, z = -96f))
-        sceneNodes += PlaneNode(engine, size = Size(x = 12f, y = 0f, z = 188f), normal = Direction(y = 1f), materialInstance = asphalt, position = Position(x = 0f, y = 0.07f, z = 10f))
-        sceneNodes += PlaneNode(engine, size = Size(x = 174f, y = 0f, z = 10f), normal = Direction(y = 1f), materialInstance = asphalt, position = Position(x = 45f, y = 0.075f, z = 24f))
-        sceneNodes += PlaneNode(engine, size = Size(x = 174f, y = 0f, z = 8f), normal = Direction(y = 1f), materialInstance = sidewalk, position = Position(x = 45f, y = 0.09f, z = 33f))
-        sceneNodes += PlaneNode(engine, size = Size(x = 174f, y = 0f, z = 8f), normal = Direction(y = 1f), materialInstance = sidewalk, position = Position(x = 45f, y = 0.09f, z = 15f))
-        sceneNodes += PlaneNode(engine, size = Size(x = 150f, y = 0f, z = 7f), normal = Direction(y = 1f), materialInstance = sidewalk, position = Position(x = -3f, y = 0.09f, z = -57f))
-        sceneNodes += PlaneNode(engine, size = Size(x = 150f, y = 0f, z = 4f), normal = Direction(y = 1f), materialInstance = asphalt, position = Position(x = -3f, y = 0.08f, z = -65f))
+        sceneNodes += PlaneNode(engine, size = Size(x = 240f, y = 0f, z = 48f), normal = Direction(y = 1f), materialInstance = water).apply { position = Position(x = 0f, y = 0.035f, z = -96f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 12f, y = 0f, z = 188f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = 0f, y = 0.07f, z = 10f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 174f, y = 0f, z = 10f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = 45f, y = 0.075f, z = 24f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 174f, y = 0f, z = 8f), normal = Direction(y = 1f), materialInstance = sidewalk).apply { position = Position(x = 45f, y = 0.09f, z = 33f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 174f, y = 0f, z = 8f), normal = Direction(y = 1f), materialInstance = sidewalk).apply { position = Position(x = 45f, y = 0.09f, z = 15f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 150f, y = 0f, z = 7f), normal = Direction(y = 1f), materialInstance = sidewalk).apply { position = Position(x = -3f, y = 0.09f, z = -57f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 150f, y = 0f, z = 4f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = -3f, y = 0.08f, z = -65f) }
         // Dash markings and a broad river crossing.
         for (i in -8..8) {
-            sceneNodes += PlaneNode(engine, size = Size(x = 0.22f, y = 0f, z = 3.4f), normal = Direction(y = 1f), materialInstance = roadPaint, position = Position(x = 0f, y = 0.095f, z = i * 10f + 10f))
+            sceneNodes += PlaneNode(engine, size = Size(x = 0.22f, y = 0f, z = 3.4f), normal = Direction(y = 1f), materialInstance = roadPaint).apply { position = Position(x = 0f, y = 0.095f, z = i * 10f + 10f) }
         }
-        sceneNodes += PlaneNode(engine, size = Size(x = 9f, y = 0f, z = 60f), normal = Direction(y = 1f), materialInstance = asphalt, position = Position(x = 0f, y = 0.14f, z = -96f))
+        sceneNodes += PlaneNode(engine, size = Size(x = 9f, y = 0f, z = 60f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = 0f, y = 0.14f, z = -96f) }
         for (i in 0..5) {
-            sceneNodes += PlaneNode(engine, size = Size(x = 42f - i * 2f, y = 0f, z = 1.45f), normal = Direction(y = 1f), materialInstance = ghatStone, position = Position(x = -58f + i * 1.1f, y = 0.12f + i * 0.08f, z = -69f - i * 2.1f))
+            sceneNodes += PlaneNode(engine, size = Size(x = 42f - i * 2f, y = 0f, z = 1.45f), normal = Direction(y = 1f), materialInstance = ghatStone).apply { position = Position(x = -58f + i * 1.1f, y = 0.12f + i * 0.08f, z = -69f - i * 2.1f) }
         }
-        sceneNodes += PlaneNode(engine, size = Size(x = 60f, y = 0f, z = 28f), normal = Direction(y = 1f), materialInstance = parkGreen, position = Position(x = -25f, y = 0.055f, z = -37f))
+        sceneNodes += PlaneNode(engine, size = Size(x = 60f, y = 0f, z = 28f), normal = Direction(y = 1f), materialInstance = parkGreen).apply { position = Position(x = -25f, y = 0.055f, z = -37f) }
         // A recognisable Golghar silhouette made as one tapered, shaded mesh rather than primitives.
         val golghar = createGolghar(engine, golgharMaterial)
         golghar.position = Position(x = 56f, y = 0.1f, z = -28f)
         sceneNodes += golghar
-        sceneNodes += PlaneNode(engine, size = Size(x = 1.8f, y = 2.4f, z = 0f), normal = Direction(z = 1f), materialInstance = darkStone, position = Position(x = 56f, y = 1.2f, z = -19.65f))
+        sceneNodes += PlaneNode(engine, size = Size(x = 1.8f, y = 2.4f, z = 0f), normal = Direction(z = 1f), materialInstance = darkStone).apply { position = Position(x = 56f, y = 1.2f, z = -19.65f) }
         loadMessage = "Loading people, homes and city assets…"
 
         suspend fun addModel(url: String, scale: Float, at: Position, yaw: Float = 0f, walk: Boolean = false): ModelNode? {

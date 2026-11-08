@@ -147,6 +147,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var isDriving by remember { mutableStateOf(false) }
     var pedestrianNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
     var vehicleNode by remember { mutableStateOf<ModelNode?>(null) }
+    var trafficNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
 
     val grass = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF71835C), roughness = 0.96f) }
     val asphalt = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF343A40), roughness = 0.9f) }
@@ -231,6 +232,10 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         addModel(SUV_GLB, 4.7f, Position(x = 20f, y = 0.12f, z = 66f), yaw = 0f)
         addModel(SUV_GLB, 4.7f, Position(x = 66f, y = 0.12f, z = -76f), yaw = 180f)
         addModel(SUV_GLB, 4.7f, Position(x = -48f, y = 0.12f, z = -88f), yaw = 90f)
+        // Two autonomous traffic cars patrol the long north/south avenues.
+        val trafficA = addModel(SUV_GLB, 4.7f, Position(x = 0f, y = 0.12f, z = 180f), yaw = 0f)
+        val trafficB = addModel(SUV_GLB, 4.7f, Position(x = 180f, y = 0.12f, z = -180f), yaw = 180f)
+        trafficNodes = listOfNotNull(trafficA, trafficB)
         // Large, textured city silhouettes and real-scale civic buildings widen the skyline.
         // Load the large 23 MB tower in parallel so it never blocks the first playable frame.
         launch { addModel(HIGHRISE_GLB, 118f, Position(x = 80f, y = 0f, z = -26f), yaw = 0f) }
@@ -288,7 +293,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         pedestrianNodes = animated.drop(2)
     }
 
-    LaunchedEffect(worldReady, playerNode, npcNode, vehicleNode, pedestrianNodes) {
+    LaunchedEffect(worldReady, playerNode, npcNode, vehicleNode, pedestrianNodes, trafficNodes) {
         val player = playerNode ?: return@LaunchedEffect
         val npc = npcNode ?: return@LaunchedEffect
         if (!worldReady) return@LaunchedEffect
@@ -302,6 +307,12 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         var lastNearGolghar = false
         var lastMoving: Boolean? = null
         var lastNpcWalking: Boolean? = null
+        // Roll the SUV's four separate wheel meshes when it moves.
+        val wheelNodes = vehicleNode?.renderableNodes?.filter { renderable ->
+            val partName = renderable.name.orEmpty().lowercase()
+            partName.contains("wheel") || partName.contains("tire") || partName.contains("tyre")
+        }.orEmpty()
+        var wheelRotation = 0f
         val workerRoutes = listOf(
             listOf(ActorWaypoint(34f, 18f, 1.2f), ActorWaypoint(40f, 18f, 0.6f), ActorWaypoint(40f, 27f, 1.5f), ActorWaypoint(34f, 27f, 0.6f)),
             listOf(ActorWaypoint(18f, -25f, 1.5f), ActorWaypoint(17f, -31f, 0.6f), ActorWaypoint(27f, -31f, 1.8f), ActorWaypoint(28f, -25f, 0.6f))
@@ -329,7 +340,13 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     // The SUV asset's forward axis is -Z; motion and model yaw now match.
                     val nextCarX = input.carX - sin(input.carYaw) * input.carSpeed * dt
                     val nextCarZ = input.carZ - cos(input.carYaw) * input.carSpeed * dt
-                    if (hitsWorld(nextCarX, nextCarZ, 2.5f)) {
+                    val trafficHit = trafficNodes.any { other ->
+                        sqrt((nextCarX - other.position.x) * (nextCarX - other.position.x) + (nextCarZ - other.position.z) * (nextCarZ - other.position.z)) < 4.8f
+                    }
+                    val pedestrianHit = (listOfNotNull(npc) + pedestrianNodes).any { person ->
+                        sqrt((nextCarX - person.position.x) * (nextCarX - person.position.x) + (nextCarZ - person.position.z) * (nextCarZ - person.position.z)) < 2.8f
+                    }
+                    if (hitsWorld(nextCarX, nextCarZ, 2.5f) || trafficHit || pedestrianHit) {
                         input.carSpeed = 0f
                     } else {
                         input.carX = nextCarX
@@ -337,6 +354,13 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     }
                     vehicle.position = Position(x = input.carX, y = 0.12f, z = input.carZ)
                     vehicle.rotation = Rotation(y = input.carYaw * 180f / PI.toFloat())
+                    wheelRotation += input.carSpeed * dt / 0.37f * 180f / PI.toFloat()
+                    wheelNodes.forEach { wheel ->
+                        val partName = wheel.name.orEmpty().lowercase()
+                        val frontWheel = partName.contains("front") || partName.contains("fl") || partName.contains("fr")
+                        val steeringAngle = if (frontWheel) steering * 12f else 0f
+                        wheel.rotation = Rotation(x = wheelRotation, y = steeringAngle)
+                    }
                     px = input.carX
                     pz = input.carZ
                     player.position = Position(x = px, y = -35f, z = pz)
@@ -359,11 +383,20 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         val worldZ = -moveX * sin(input.yaw) - moveZ * cos(input.yaw)
                         val nextX = px + worldX * 1.55f * dt / length
                         val nextZ = pz + worldZ * 1.55f * dt / length
-                        // Axis-separated collision response lets the player slide along walls, not through them.
-                        if (!hitsWorld(nextX, pz, 0.45f) &&
+                        // Axis-separated response: walls, parked cars, pedestrians and traffic have body.
+                        fun clearOfPeopleAndTraffic(x: Float, z: Float): Boolean {
+                            val peopleClear = (listOfNotNull(npc) + pedestrianNodes).all { person ->
+                                sqrt((x - person.position.x) * (x - person.position.x) + (z - person.position.z) * (z - person.position.z)) > 1.15f
+                            }
+                            val trafficClear = trafficNodes.all { car ->
+                                sqrt((x - car.position.x) * (x - car.position.x) + (z - car.position.z) * (z - car.position.z)) > 4.0f
+                            }
+                            return peopleClear && trafficClear
+                        }
+                        if (!hitsWorld(nextX, pz, 0.45f) && clearOfPeopleAndTraffic(nextX, pz) &&
                             sqrt((nextX - input.carX) * (nextX - input.carX) + (pz - input.carZ) * (pz - input.carZ)) > 3.0f
                         ) px = nextX
-                        if (!hitsWorld(px, nextZ, 0.45f) &&
+                        if (!hitsWorld(px, nextZ, 0.45f) && clearOfPeopleAndTraffic(px, nextZ) &&
                             sqrt((px - input.carX) * (px - input.carX) + (nextZ - input.carZ) * (nextZ - input.carZ)) > 3.0f
                         ) pz = nextZ
                         val facingYaw = kotlin.math.atan2(-worldX, -worldZ)
@@ -408,6 +441,18 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         z = npc.position.z + nz / distance * step
                     )
                     npc.rotation = Rotation(y = kotlin.math.atan2(nx, nz) * 180f / PI.toFloat() + 180f)
+                }
+
+                // Autonomous cars cruise long avenue loops with a fixed lane and speed.
+                trafficNodes.getOrNull(0)?.let { traffic ->
+                    val nextZ = traffic.position.z - 6.5f * dt
+                    traffic.position = Position(x = 0f, y = 0.12f, z = if (nextZ < -180f) 180f else nextZ)
+                    traffic.rotation = Rotation(y = 0f)
+                }
+                trafficNodes.getOrNull(1)?.let { traffic ->
+                    val nextZ = traffic.position.z + 7.2f * dt
+                    traffic.position = Position(x = 180f, y = 0.12f, z = if (nextZ > 180f) -180f else nextZ)
+                    traffic.rotation = Rotation(y = 180f)
                 }
 
                 val nowNear = sqrt(

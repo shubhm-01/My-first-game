@@ -65,6 +65,7 @@ private const val SUV_GLB = "https://grab3d.com/dl/1990s-suv/1990s-suv.glb"
 private const val TREE_GLB = "https://grab3d.com/dl/mangrove-tree/mangrove-tree.glb"
 private const val STREETLIGHT_GLB = "https://grab3d.com/dl/street-light/street-light.glb"
 private const val BUSSTOP_GLB = "https://grab3d.com/dl/bus-stop-shelter/bus-stop-shelter.glb"
+private const val FARM_STAND_GLB = "https://grab3d.com/dl/farm-stand/farm-stand.glb"
 
 private class PatnaInput {
     var forward = false
@@ -169,6 +170,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         addModel(TREE_GLB, 8.5f, Position(x = -43f, y = 0.08f, z = -28f))
         addModel(STREETLIGHT_GLB, 8f, Position(x = -4.5f, y = 0.08f, z = 2f))
         addModel(BUSSTOP_GLB, 3.0f, Position(x = 28f, y = 0.08f, z = 18f), yaw = 90f)
+        addModel(FARM_STAND_GLB, 2.6f, Position(x = 23f, y = 0.08f, z = -28f), yaw = 180f)
 
         // Ghat benches and riverfront details.
         sceneNodes += CubeNode(engine, size = Size(x = 4.1f, y = 0.48f, z = 0.58f), materialInstance = darkStone).apply { position = Position(x = -20f, y = 0.52f, z = -43f) }

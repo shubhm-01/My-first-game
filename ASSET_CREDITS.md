@@ -11,6 +11,7 @@ This branch uses original game code plus remote GLB models from Grab3D. The sour
 | Mangrove Tree | https://grab3d.com/models/nature/mangrove-tree/ | https://grab3d.com/dl/mangrove-tree/mangrove-tree.glb |
 | Street Light | https://grab3d.com/models/city/street-light/ | https://grab3d.com/dl/street-light/street-light.glb |
 | Bus Stop Shelter | https://grab3d.com/models/city/bus-stop-shelter/ | https://grab3d.com/dl/bus-stop-shelter/bus-stop-shelter.glb |
+| Farm Stand (market / vegetable stall) | https://grab3d.com/models/buildings/farm-stand/ | https://grab3d.com/dl/farm-stand/farm-stand.glb |
 
 Grab3D licence: https://grab3d.com/license/
 CC0 1.0: https://creativecommons.org/publicdomain/zero/1.0/

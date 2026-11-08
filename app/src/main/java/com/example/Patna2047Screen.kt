@@ -398,7 +398,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     val length = sqrt(moveX * moveX + moveZ * moveZ).coerceAtLeast(1f)
                     val moving = moveX != 0f || moveZ != 0f
                     if (lastMoving != moving) {
-                        if (moving) player.playAnimation("relaxed walk", 1f, true) else player.playAnimation("idle", 1f, true)
+                        // Reuse the indexed walk clip actually present in these GLBs.
+                        if (player.animationCount > 0) player.setAnimationSpeed(0, if (moving) 0.95f else 0f)
                         lastMoving = moving
                     }
                     if (moving) {
@@ -448,7 +449,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 val distance = sqrt(nx * nx + nz * nz)
                 val npcWalking = distance >= 0.65f
                 if (lastNpcWalking != npcWalking) {
-                    if (npcWalking) npc.playAnimation("relaxed walk", 1f, true) else npc.playAnimation("idle", 1f, true)
+                    if (npc.animationCount > 0) npc.setAnimationSpeed(0, if (npcWalking) 0.9f else 0f)
                     lastNpcWalking = npcWalking
                 }
                 if (distance < 0.65f) {
@@ -493,7 +494,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     lastNear = nowNear
                     nearNpc = nowNear
                 }
-                val carNearby = !input.driving && sqrt((px - input.carX) * (px - input.carX) + (pz - input.carZ) * (pz - input.carZ)) < 6f
+                val carNearby = !input.driving && sqrt((px - input.carX) * (px - input.carX) + (pz - input.carZ) * (pz - input.carZ)) < 10f
                 if (carNearby != nearCar) nearCar = carNearby
                 val homeNearby = sqrt((px + 28f) * (px + 28f) + (pz - 24f) * (pz - 24f)) < 7f
                 if (homeNearby != lastNearHome) {
@@ -580,7 +581,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Text("LIVE WORLD", color = Color(0xFFFFD99A), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Text(if (loading) loadMessage else "AARAV  •  MEERA  •  GOLGHAR", color = Color.White, fontSize = 9.sp)
-                Text(if (input.driving) "DRIVING  •  ${input.carSpeed.toInt()} km/h" else "ON FOOT  •  360° CAMERA", color = Color(0xFFB4C5C3), fontSize = 9.sp)
+                Text(if (input.driving) "DRIVING  •  ${(input.carSpeed * 3.6f).toInt()} km/h" else "ON FOOT  •  360° CAMERA", color = Color(0xFFB4C5C3), fontSize = 9.sp)
                 Text("Drag right side to orbit / tilt", color = Color(0xFFB4C5C3), fontSize = 9.sp)
             }
         }
@@ -612,8 +613,11 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 onClick = {
                     if (input.driving) {
                         // Step out on the passenger side and resume walking.
-                        input.playerX = input.carX + 2.8f
-                        input.playerZ = input.carZ + 1.2f
+                        val exitX = input.carX + 3.4f
+                        val exitZ = input.carZ
+                        val exitClear = !hitsWorld(exitX, exitZ, 0.5f)
+                        input.playerX = if (exitClear) exitX else input.carX - 3.4f
+                        input.playerZ = exitZ
                         input.driving = false
                         input.carSpeed = 0f
                         input.yaw = input.carYaw

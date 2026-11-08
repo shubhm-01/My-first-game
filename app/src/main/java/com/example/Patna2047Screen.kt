@@ -101,7 +101,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var objective by remember { mutableStateOf("Explore the riverfront and meet Meera.") }
     var showJournal by remember { mutableStateOf(false) }
     var hasMet by remember { mutableStateOf(false) }
-    var fpsLabel by remember { mutableStateOf("60 FPS target") }
+    var nearHome by remember { mutableStateOf(false) }
+    var nearGolghar by remember { mutableStateOf(false) }
 
     val grass = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF71835C), roughness = 0.96f) }
     val asphalt = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF343A40), roughness = 0.9f) }
@@ -125,7 +126,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         sceneNodes += PlaneNode(engine, size = Size(x = 150f, y = 4f), normal = Direction(y = 1f), materialInstance = asphalt, position = Position(x = -3f, y = 0.08f, z = -65f))
         // Dash markings and a broad river crossing.
         for (i in -8..8) {
-            sceneNodes += PlaneNode(engine, size = Size(x = 0.22f, y = 3.4f), normal = Direction(y = 1f), materialInstance = roadPaint, position = Position(x = 0f, y = 0.095f, z = i * 10f - 68f))
+            sceneNodes += PlaneNode(engine, size = Size(x = 0.22f, y = 3.4f), normal = Direction(y = 1f), materialInstance = roadPaint, position = Position(x = 0f, y = 0.095f, z = i * 10f + 10f))
         }
         sceneNodes += PlaneNode(engine, size = Size(x = 9f, y = 60f), normal = Direction(y = 1f), materialInstance = asphalt, position = Position(x = 0f, y = 0.14f, z = -96f))
         for (i in 0..5) {
@@ -224,6 +225,10 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         var segment = 0
         var pause = 0f
         var lastNear = false
+        var lastNearHome = false
+        var lastNearGolghar = false
+        var lastMoving: Boolean? = null
+        var lastNpcWalking: Boolean? = null
         while (true) {
             withFrameNanos { now ->
                 val dt = if (previous == 0L) 0.016f else ((now - previous) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
@@ -232,7 +237,12 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 val dx = (if (input.right) 1f else 0f) - (if (input.left) 1f else 0f)
                 val dz = (if (input.back) 1f else 0f) - (if (input.forward) 1f else 0f)
                 val length = sqrt(dx * dx + dz * dz).coerceAtLeast(1f)
-                if (dx != 0f || dz != 0f) {
+                val moving = dx != 0f || dz != 0f
+                if (lastMoving != moving) {
+                    player.setAnimationSpeed(0, if (moving) 0.95f else 0.12f)
+                    lastMoving = moving
+                }
+                if (moving) {
                     val cYaw = cos(input.yaw)
                     val sYaw = sin(input.yaw)
                     px = (px + (dx * cYaw - dz * sYaw) * 3.8f * dt / length).coerceIn(-105f, 105f)
@@ -251,6 +261,11 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 val nx = target.x - npc.position.x
                 val nz = target.z - npc.position.z
                 val distance = sqrt(nx * nx + nz * nz)
+                val npcWalking = distance >= 0.65f
+                if (lastNpcWalking != npcWalking) {
+                    npc.setAnimationSpeed(0, if (npcWalking) 0.85f else 0.12f)
+                    lastNpcWalking = npcWalking
+                }
                 if (distance < 0.65f) {
                     if (pause < target.pause) pause += dt
                     else {
@@ -274,6 +289,16 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 if (nowNear != lastNear) {
                     lastNear = nowNear
                     nearNpc = nowNear
+                }
+                val homeNearby = sqrt((px + 28f) * (px + 28f) + (pz - 24f) * (pz - 24f)) < 7f
+                if (homeNearby != lastNearHome) {
+                    lastNearHome = homeNearby
+                    nearHome = homeNearby
+                }
+                val golgharNearby = sqrt((px - 56f) * (px - 56f) + (pz + 28f) * (pz + 28f)) < 11f
+                if (golgharNearby != lastNearGolghar) {
+                    lastNearGolghar = golgharNearby
+                    nearGolghar = golgharNearby
                 }
             }
         }
@@ -311,7 +336,15 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         ) {
             Text("PATNA 2047", color = Color(0xFFFFD99A), fontSize = 16.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
             Text("GANGA RIVERFRONT  •  BIHAR", color = Color(0xFFE5E3DB), fontSize = 9.sp, letterSpacing = 1.3.sp)
-            Text(if (nearNpc) "MEERA IS NEARBY  •  TAP INTERACT" else objective, color = Color(0xFFB7D6CF), fontSize = 10.sp)
+            Text(
+                when {
+                    nearNpc -> "MEERA IS NEARBY  •  TAP INTERACT"
+                    nearHome -> "HOME  •  TAP INTERACT"
+                    nearGolghar -> "GOLGHAR  •  TAP INTERACT"
+                    else -> objective
+                },
+                color = Color(0xFFB7D6CF), fontSize = 10.sp
+            )
         }
 
         Surface(
@@ -346,12 +379,23 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         ) {
             Button(
                 onClick = {
-                    if (nearNpc) {
-                        hasMet = true
-                        dialogue = "Meera: Aarav, chalo ghat par baithte hain. Aaj Ganga aarti dekhni hai!  •  Aarav: Haan, ghar lautne se pehle chai bhi piyenge."
-                        objective = "Story 01 complete: Meet Meera at the riverfront."
-                    } else {
-                        dialogue = "Aarav: Meera ko riverfront par dhoondhna hai. Ghar ke paas se ghat ki taraf chalo."
+                    when {
+                        nearNpc -> {
+                            hasMet = true
+                            dialogue = "Meera: Aarav, ghat par thodi der rukte hain. Aaj Ganga aarti dekhni hai!  •  Aarav: Haan, phir ghar lautenge."
+                            objective = "Story 01 complete: Meet Meera. Explore Golghar next."
+                        }
+                        nearHome -> {
+                            dialogue = "Meera: Yeh hamara ghar hai. Chalo, riverfront tak paidal chalte hain."
+                            objective = "Walk to Meera at the Ganga promenade."
+                        }
+                        nearGolghar -> {
+                            dialogue = "Aarav: Golghar, Patna ka mashhoor anaaj-gola. Is shehar ki history yahin zinda hai."
+                            objective = if (hasMet) "Story 01 complete. Explore the Ganga riverfront." else "Find Meera near the riverfront."
+                        }
+                        else -> {
+                            dialogue = "Aarav: Meera ko riverfront par dhoondhna hai. Ghar se ghat ki taraf chalo."
+                        }
                     }
                 },
                 enabled = worldReady,

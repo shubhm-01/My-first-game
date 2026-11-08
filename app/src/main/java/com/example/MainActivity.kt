@@ -113,7 +113,7 @@ class MainActivity : ComponentActivity() {
             .fillMaxSize()
             .testTag("main_scaffold")
         ) { innerPadding ->
-          TheLastAlchemistPlayableScreen(
+          Patna2047Screen(
             modifier = Modifier
               .fillMaxSize()
               .padding(innerPadding)

@@ -78,7 +78,7 @@ private class PatnaInput {
 private data class ActorWaypoint(val x: Float, val z: Float, val pause: Float = 0f)
 
 /**
- * A third-person, real-time 3D vertical slice set in a fictional 2047 expansion of Patna.
+ * A third-person, real-time 3D vertical slice set in a fictional 2047 expansion of Patna. This feature branch is APK-build validated by CI.
  * Characters and city props are real textured GLB assets; only the Golghar landmark and
  * terrain/roads are generated geometry. The original Alchemist game remains in the repository.
  */

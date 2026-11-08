@@ -279,6 +279,9 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     player.position = Position(x = px, y = -35f, z = pz)
                     player.setAnimationSpeed(0, 0.12f)
                 } else {
+                    // Re-sync the local simulation after the player exits the car.
+                    px = input.playerX
+                    pz = input.playerZ
                     val moveX = (if (input.right) 1f else 0f) - (if (input.left) 1f else 0f)
                     val moveZ = (if (input.forward) 1f else 0f) - (if (input.back) 1f else 0f)
                     val length = sqrt(moveX * moveX + moveZ * moveZ).coerceAtLeast(1f)

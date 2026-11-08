@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,7 +53,6 @@ import io.github.sceneview.math.Direction
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
 import io.github.sceneview.math.Size
-import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -196,7 +196,9 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     }
 
     // The female character follows a small daily routine: home → market → river promenade → home.
-    var npcSegment by remember { mutableStateOf(0) }
+    var playerNode by remember { mutableStateOf<ModelNode?>(null) }
+    var npcNode by remember { mutableStateOf<ModelNode?>(null) }
+    var nearNpc by remember { mutableStateOf(false) }
     val npcRoute = remember {
         listOf(
             ActorWaypoint(-21f, 20f, 1.2f),
@@ -207,67 +209,74 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             ActorWaypoint(-21f, 20f, 2.0f)
         )
     }
-    var playerNode by remember { mutableStateOf<ModelNode?>(null) }
-    var npcNode by remember { mutableStateOf<ModelNode?>(null) }
-    // Resolve the actor nodes from the live scene list after initial loading.
+    // Resolve the two rigged actors after the GLB files finish loading.
     LaunchedEffect(sceneNodes.size, worldReady) {
-        playerNode = sceneNodes.filterIsInstance<ModelNode>().firstOrNull { it.modelInstance.animator.animationCount > 0 }
-        npcNode = sceneNodes.filterIsInstance<ModelNode>().drop(1).firstOrNull { it.modelInstance.animator.animationCount > 0 }
+        val animated = sceneNodes.filterIsInstance<ModelNode>().filter { it.animationCount > 0 }
+        playerNode = animated.getOrNull(0)
+        npcNode = animated.getOrNull(1)
     }
-    var npcPause by remember { mutableStateOf(0f) }
-    var cameraYaw by remember { mutableStateOf(0f) }
-    var playerX by remember { mutableStateOf(-18f) }
-    var playerZ by remember { mutableStateOf(18f) }
-    var clock by remember { mutableStateOf(0f) }
-    var nearNpc by remember { mutableStateOf(false) }
 
     LaunchedEffect(worldReady, playerNode, npcNode) {
-        if (!worldReady || playerNode == null || npcNode == null) return@LaunchedEffect
-        var previous = System.nanoTime()
+        val player = playerNode ?: return@LaunchedEffect
+        val npc = npcNode ?: return@LaunchedEffect
+        if (!worldReady) return@LaunchedEffect
+        var previous = 0L
+        var px = -18f
+        var pz = 18f
+        var segment = 0
+        var pause = 0f
+        var lastNear = false
         while (true) {
             withFrameNanos { now ->
                 val dt = if (previous == 0L) 0.016f else ((now - previous) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
                 previous = now
-                clock += dt
+
                 val dx = (if (input.right) 1f else 0f) - (if (input.left) 1f else 0f)
                 val dz = (if (input.back) 1f else 0f) - (if (input.forward) 1f else 0f)
                 val length = sqrt(dx * dx + dz * dz).coerceAtLeast(1f)
-                val moving = dx != 0f || dz != 0f
-                if (moving) {
-                    val c = cos(cameraYaw)
-                    val s = sin(cameraYaw)
-                    playerX += (dx * c - dz * s) * 3.8f * dt / length
-                    playerZ += (dx * s + dz * c) * 3.8f * dt / length
-                    playerX = playerX.coerceIn(-105f, 105f)
-                    playerZ = playerZ.coerceIn(-52f, 95f)
-                    playerNode?.position = Position(x = playerX, y = 0.12f, z = playerZ)
-                    playerNode?.rotation = Rotation(y = (cameraYaw * 180f / PI.toFloat()) + 180f)
+                if (dx != 0f || dz != 0f) {
+                    val cYaw = cos(input.yaw)
+                    val sYaw = sin(input.yaw)
+                    px = (px + (dx * cYaw - dz * sYaw) * 3.8f * dt / length).coerceIn(-105f, 105f)
+                    pz = (pz + (dx * sYaw + dz * cYaw) * 3.8f * dt / length).coerceIn(-52f, 95f)
+                    player.position = Position(x = px, y = 0.12f, z = pz)
+                    player.rotation = Rotation(y = input.yaw * 180f / PI.toFloat() + 180f)
                 }
-                val camX = playerX + sin(cameraYaw) * 6.0f
-                val camZ = playerZ + cos(cameraYaw) * 6.0f
-                cameraNode.position = Position(x = camX, y = 3.45f, z = camZ)
-                cameraNode.lookAt(Position(x = playerX, y = 1.15f, z = playerZ))
+                cameraNode.position = Position(
+                    x = px + sin(input.yaw) * 6.0f,
+                    y = 3.45f,
+                    z = pz + cos(input.yaw) * 6.0f
+                )
+                cameraNode.lookAt(Position(x = px, y = 1.15f, z = pz))
 
-                val route = npcRoute[npcSegment]
-                val npc = npcNode
-                if (npc != null) {
-                    val nx = route.x - npc.position.x
-                    val nz = route.z - npc.position.z
-                    val distance = sqrt(nx * nx + nz * nz)
-                    if (distance < 0.65f) {
-                        if (npcPause < route.pause) {
-                            npcPause += dt
-                        } else {
-                            npcPause = 0f
-                            npcSegment = (npcSegment + 1) % npcRoute.size
-                        }
-                    } else {
-                        val step = (1.5f * dt).coerceAtMost(distance)
-                        npc.position = Position(x = npc.position.x + nx / distance * step, y = 0.12f, z = npc.position.z + nz / distance * step)
-                        npc.rotation = Rotation(y = (kotlin.math.atan2(nx, nz) * 180f / PI.toFloat()) + 180f)
+                val target = npcRoute[segment]
+                val nx = target.x - npc.position.x
+                val nz = target.z - npc.position.z
+                val distance = sqrt(nx * nx + nz * nz)
+                if (distance < 0.65f) {
+                    if (pause < target.pause) pause += dt
+                    else {
+                        pause = 0f
+                        segment = (segment + 1) % npcRoute.size
                     }
+                } else {
+                    val step = (1.5f * dt).coerceAtMost(distance)
+                    npc.position = Position(
+                        x = npc.position.x + nx / distance * step,
+                        y = 0.12f,
+                        z = npc.position.z + nz / distance * step
+                    )
+                    npc.rotation = Rotation(y = kotlin.math.atan2(nx, nz) * 180f / PI.toFloat() + 180f)
                 }
-                nearNpc = npc != null && sqrt((playerX - npc.position.x) * (playerX - npc.position.x) + (playerZ - npc.position.z) * (playerZ - npc.position.z)) < 4.3f
+
+                val nowNear = sqrt(
+                    (px - npc.position.x) * (px - npc.position.x) +
+                        (pz - npc.position.z) * (pz - npc.position.z)
+                ) < 4.3f
+                if (nowNear != lastNear) {
+                    lastNear = nowNear
+                    nearNpc = nowNear
+                }
             }
         }
     }
@@ -290,8 +299,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 .pointerInput(Unit) {
                     detectDragGestures { change, drag ->
                         change.consume()
-                        cameraYaw += drag.x * 0.0045f
-                        cameraYaw = cameraYaw.coerceIn(-1.25f, 1.25f)
+                        input.yaw += drag.x * 0.0045f
+                        input.yaw = input.yaw.coerceIn(-1.25f, 1.25f)
                     }
                 }
         )

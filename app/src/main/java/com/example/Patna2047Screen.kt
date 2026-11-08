@@ -79,7 +79,7 @@ private class PatnaInput {
     var right = false
     // Camera yaw is deliberately unbounded: a full orbit is allowed.
     var yaw = 0f
-    var cameraHeight = 4.1f
+    var cameraHeight = 3.5f
     var interact = false
     var driving = false
     var playerX = -18f
@@ -298,20 +298,22 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         val worldZ = -moveX * sin(input.yaw) - moveZ * cos(input.yaw)
                         px = (px + worldX * 3.8f * dt / length).coerceIn(-118f, 118f)
                         pz = (pz + worldZ * 3.8f * dt / length).coerceIn(-62f, 112f)
+                        val facingYaw = kotlin.math.atan2(-worldX, -worldZ)
+                        player.rotation = Rotation(y = facingYaw * 180f / PI.toFloat() + 180f)
                     }
                     input.playerX = px
                     input.playerZ = pz
                     player.position = Position(x = px, y = 0.12f, z = pz)
-                    player.rotation = Rotation(y = input.yaw * 180f / PI.toFloat() + 180f)
                 }
 
                 // Independent orbit camera: full 360° yaw and adjustable elevation.
                 val followX = if (input.driving) input.carX else px
                 val followZ = if (input.driving) input.carZ else pz
+                val followDistance = if (input.driving) 11.5f else 6.2f
                 cameraNode.position = Position(
-                    x = followX + sin(input.yaw) * 8.2f,
+                    x = followX + sin(input.yaw) * followDistance,
                     y = input.cameraHeight,
-                    z = followZ + cos(input.yaw) * 8.2f
+                    z = followZ + cos(input.yaw) * followDistance
                 )
                 cameraNode.lookAt(Position(x = followX, y = 1.15f, z = followZ))
 
@@ -425,6 +427,10 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
+            Text(
+                if (drivingUi) "▲ GAS  •  ▼ REVERSE/BRAKE  •  ◀ ▶ STEER" else "▲ FORWARD  •  ▼ BACK  •  ◀ ▶ STRAFE",
+                color = Color(0xFFFFD99A), fontSize = 9.sp, fontWeight = FontWeight.Bold
+            )
             HoldDirection("▲", { input.forward = it })
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
                 HoldDirection("◀", { input.left = it })

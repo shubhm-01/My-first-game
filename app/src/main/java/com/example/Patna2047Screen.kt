@@ -208,9 +208,26 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     loadMessage = "Some city assets are unavailable. Continuing with the 3D city…"
                     null
                 } else {
-                    ModelNode(instance, autoAnimate = false, scaleToUnits = scale, centerOrigin = Position(x = 0f, y = -1f, z = 0f)).also { node ->
-                        node.position = at
+                    ModelNode(instance, autoAnimate = false, scaleToUnits = scale).also { node ->
                         node.rotation = Rotation(y = yaw)
+                        // SceneView 2.2.1's centerOrigin(0,-1,0) uses an older offset rule.
+                        // Compute the rotated AABB bottom point directly so every GLB sits on the ground.
+                        val sx = node.scale.x
+                        val sy = node.scale.y
+                        val sz = node.scale.z
+                        val yawRad = yaw * PI.toFloat() / 180f
+                        val c = cos(yawRad)
+                        val sn = sin(yawRad)
+                        val bottomLocalX = node.center.x * sx
+                        val bottomLocalY = (node.center.y - node.halfExtent.y) * sy
+                        val bottomLocalZ = node.center.z * sz
+                        val bottomWorldX = c * bottomLocalX + sn * bottomLocalZ
+                        val bottomWorldZ = -sn * bottomLocalX + c * bottomLocalZ
+                        node.position = Position(
+                            x = at.x - bottomWorldX,
+                            y = at.y - bottomLocalY,
+                            z = at.z - bottomWorldZ
+                        )
                         if (walk && node.animationCount > 0) node.playAnimation(0, 0.95f, true)
                         sceneNodes += node
                     }

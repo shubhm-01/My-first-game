@@ -62,7 +62,7 @@ private const val MAN_GLB = "https://grab3d.com/dl/man-rigged/man-rigged.glb"
 private const val WOMAN_GLB = "https://grab3d.com/dl/woman-rigged/woman-rigged.glb"
 private const val HOUSE_GLB = "https://grab3d.com/dl/modern-house/modern-house.glb"
 private const val SUV_GLB = "https://grab3d.com/dl/1990s-suv/1990s-suv.glb"
-private const val TREE_GLB = "https://grab3d.com/dl/baobab-tree/baobab-tree.glb"
+private const val TREE_GLB = "https://grab3d.com/dl/mangrove-tree/mangrove-tree.glb"
 private const val STREETLIGHT_GLB = "https://grab3d.com/dl/street-light/street-light.glb"
 private const val BUSSTOP_GLB = "https://grab3d.com/dl/bus-stop-shelter/bus-stop-shelter.glb"
 
@@ -136,9 +136,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         val golghar = createGolghar(engine, golgharMaterial)
         golghar.position = Position(x = 56f, y = 0.1f, z = -28f)
         sceneNodes += golghar
-        sceneNodes += CylinderNode(engine, radius = 0.55f, height = 1.6f, center = Position(x = 0f, y = 0.8f, z = 0f), materialInstance = darkStone).apply {
-            position = Position(x = 56f, y = 0.1f, z = -28f)
-        }
+        sceneNodes += PlaneNode(engine, size = Size(x = 1.8f, y = 2.4f), normal = Direction(z = 1f), materialInstance = darkStone, position = Position(x = 56f, y = 1.2f, z = -19.65f))
         loadMessage = "Loading people, homes and city assets…"
 
         suspend fun addModel(url: String, scale: Float, at: Position, yaw: Float = 0f, walk: Boolean = false): ModelNode? {
@@ -162,7 +160,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         }
 
         // Keep detailed assets sparse for mobile GPU/thermal headroom.
-        val home = addModel(HOUSE_GLB, 17f, Position(x = -28f, y = 0f, z = 24f), yaw = 90f)
+        addModel(HOUSE_GLB, 17f, Position(x = -28f, y = 0f, z = 24f), yaw = 90f)
         addModel(HOUSE_GLB, 14f, Position(x = -52f, y = 0f, z = -4f), yaw = 0f)
         val boy = addModel(MAN_GLB, 1.78f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
         val girl = addModel(WOMAN_GLB, 1.7f, Position(x = -21f, y = 0.12f, z = 20f), yaw = 180f, walk = true)

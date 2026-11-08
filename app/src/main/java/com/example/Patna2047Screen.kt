@@ -183,7 +183,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         addModel(HOUSE_GLB, 14f, Position(x = -52f, y = 0f, z = -4f), yaw = 0f)
         val boy = addModel(MAN_GLB, 1.78f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
         val girl = addModel(WOMAN_GLB, 1.7f, Position(x = -21f, y = 0.12f, z = 20f), yaw = 180f, walk = true)
-        vehicleNode = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 180f)
+        vehicleNode = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 90f)
         // Large, textured city silhouettes and real-scale civic buildings widen the skyline.
         // Load the large 23 MB tower in parallel so it never blocks the first playable frame.
         launch { addModel(HIGHRISE_GLB, 118f, Position(x = 80f, y = 0f, z = -26f), yaw = 0f) }
@@ -275,7 +275,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     input.carX = (input.carX - sin(input.carYaw) * input.carSpeed * dt).coerceIn(-118f, 118f)
                     input.carZ = (input.carZ - cos(input.carYaw) * input.carSpeed * dt).coerceIn(-62f, 112f)
                     vehicle.position = Position(x = input.carX, y = 0.12f, z = input.carZ)
-                    vehicle.rotation = Rotation(y = 180f + input.carYaw * 180f / PI.toFloat())
+                    vehicle.rotation = Rotation(y = 90f + input.carYaw * 180f / PI.toFloat())
                     px = input.carX
                     pz = input.carZ
                     player.position = Position(x = px, y = -35f, z = pz)

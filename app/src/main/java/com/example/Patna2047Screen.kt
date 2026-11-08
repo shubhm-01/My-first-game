@@ -66,14 +66,27 @@ private const val TREE_GLB = "https://grab3d.com/dl/mangrove-tree/mangrove-tree.
 private const val STREETLIGHT_GLB = "https://grab3d.com/dl/street-light/street-light.glb"
 private const val BUSSTOP_GLB = "https://grab3d.com/dl/bus-stop-shelter/bus-stop-shelter.glb"
 private const val FARM_STAND_GLB = "https://grab3d.com/dl/farm-stand/farm-stand.glb"
+private const val HIGHRISE_GLB = "https://www.innerscene.com/api/library/mixed-use-high-rise-27a41221/download"
+private const val BANK_GLB = "https://grab3d.com/dl/bank/bank.glb"
+private const val UNIVERSITY_GLB = "https://grab3d.com/dl/university-building/university-building.glb"
+private const val POWER_PLANT_GLB = "https://grab3d.com/dl/power-plant/power-plant.glb"
 
 private class PatnaInput {
     var forward = false
     var back = false
     var left = false
     var right = false
+    // Camera yaw is deliberately unbounded: a full orbit is allowed.
     var yaw = 0f
+    var cameraHeight = 4.1f
     var interact = false
+    var driving = false
+    var playerX = -18f
+    var playerZ = 18f
+    var carX = -10f
+    var carZ = 23f
+    var carYaw = 0f
+    var carSpeed = 0f
 }
 
 private data class ActorWaypoint(val x: Float, val z: Float, val pause: Float = 0f)
@@ -104,6 +117,9 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var hasMet by remember { mutableStateOf(false) }
     var nearHome by remember { mutableStateOf(false) }
     var nearGolghar by remember { mutableStateOf(false) }
+    var nearCar by remember { mutableStateOf(false) }
+    var drivingUi by remember { mutableStateOf(false) }
+    var vehicleNode by remember { mutableStateOf<ModelNode?>(null) }
 
     val grass = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF71835C), roughness = 0.96f) }
     val asphalt = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF343A40), roughness = 0.9f) }
@@ -166,7 +182,12 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         addModel(HOUSE_GLB, 14f, Position(x = -52f, y = 0f, z = -4f), yaw = 0f)
         val boy = addModel(MAN_GLB, 1.78f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
         val girl = addModel(WOMAN_GLB, 1.7f, Position(x = -21f, y = 0.12f, z = 20f), yaw = 180f, walk = true)
-        addModel(SUV_GLB, 4.7f, Position(x = 14f, y = 0.12f, z = 20f), yaw = 90f)
+        vehicleNode = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 180f)
+        // Large, textured city silhouettes and real-scale civic buildings widen the skyline.
+        addModel(HIGHRISE_GLB, 118f, Position(x = 80f, y = 0f, z = -26f), yaw = 0f)
+        addModel(BANK_GLB, 18f, Position(x = 70f, y = 0f, z = 28f), yaw = -90f)
+        addModel(UNIVERSITY_GLB, 26f, Position(x = -76f, y = 0f, z = 29f), yaw = 0f)
+        addModel(POWER_PLANT_GLB, 34f, Position(x = 94f, y = 0f, z = -54f), yaw = 90f)
         addModel(TREE_GLB, 8.5f, Position(x = -43f, y = 0.08f, z = -28f))
         addModel(STREETLIGHT_GLB, 8f, Position(x = -4.5f, y = 0.08f, z = 2f))
         addModel(BUSSTOP_GLB, 3.0f, Position(x = 28f, y = 0.08f, z = 18f), yaw = 90f)
@@ -217,7 +238,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         npcNode = animated.getOrNull(1)
     }
 
-    LaunchedEffect(worldReady, playerNode, npcNode) {
+    LaunchedEffect(worldReady, playerNode, npcNode, vehicleNode) {
         val player = playerNode ?: return@LaunchedEffect
         val npc = npcNode ?: return@LaunchedEffect
         if (!worldReady) return@LaunchedEffect
@@ -236,28 +257,58 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 val dt = if (previous == 0L) 0.016f else ((now - previous) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
                 previous = now
 
-                val dx = (if (input.right) 1f else 0f) - (if (input.left) 1f else 0f)
-                val dz = (if (input.back) 1f else 0f) - (if (input.forward) 1f else 0f)
-                val length = sqrt(dx * dx + dz * dz).coerceAtLeast(1f)
-                val moving = dx != 0f || dz != 0f
-                if (lastMoving != moving) {
-                    player.setAnimationSpeed(0, if (moving) 0.95f else 0.12f)
-                    lastMoving = moving
-                }
-                if (moving) {
-                    val cYaw = cos(input.yaw)
-                    val sYaw = sin(input.yaw)
-                    px = (px + (dx * cYaw - dz * sYaw) * 3.8f * dt / length).coerceIn(-105f, 105f)
-                    pz = (pz + (dx * sYaw + dz * cYaw) * 3.8f * dt / length).coerceIn(-52f, 95f)
+                val vehicle = vehicleNode
+                if (input.driving && vehicle != null) {
+                    // Mobile driving: throttle, reverse/brake, steering and coasting.
+                    input.carSpeed = when {
+                        input.forward -> (input.carSpeed + 10.5f * dt).coerceAtMost(24f)
+                        input.back -> (input.carSpeed - 13.5f * dt).coerceAtLeast(-7f)
+                        else -> input.carSpeed * (1f - (1.45f * dt).coerceAtMost(0.9f))
+                    }
+                    val steering = (if (input.right) 1f else 0f) - (if (input.left) 1f else 0f)
+                    if (kotlin.math.abs(input.carSpeed) > 0.2f) {
+                        val travelDirection = if (input.carSpeed >= 0f) 1f else -1f
+                        input.carYaw -= steering * 1.35f * dt * travelDirection
+                    }
+                    input.carX = (input.carX - sin(input.carYaw) * input.carSpeed * dt).coerceIn(-118f, 118f)
+                    input.carZ = (input.carZ - cos(input.carYaw) * input.carSpeed * dt).coerceIn(-62f, 112f)
+                    vehicle.position = Position(x = input.carX, y = 0.12f, z = input.carZ)
+                    vehicle.rotation = Rotation(y = 180f + input.carYaw * 180f / PI.toFloat())
+                    px = input.carX
+                    pz = input.carZ
+                    player.position = Position(x = px, y = -35f, z = pz)
+                    player.setAnimationSpeed(0, 0.12f)
+                } else {
+                    val moveX = (if (input.right) 1f else 0f) - (if (input.left) 1f else 0f)
+                    val moveZ = (if (input.forward) 1f else 0f) - (if (input.back) 1f else 0f)
+                    val length = sqrt(moveX * moveX + moveZ * moveZ).coerceAtLeast(1f)
+                    val moving = moveX != 0f || moveZ != 0f
+                    if (lastMoving != moving) {
+                        player.setAnimationSpeed(0, if (moving) 0.95f else 0.12f)
+                        lastMoving = moving
+                    }
+                    if (moving) {
+                        // Screen-up is forward, screen-left is left, relative to the camera heading.
+                        val worldX = moveX * cos(input.yaw) - moveZ * sin(input.yaw)
+                        val worldZ = -moveX * sin(input.yaw) - moveZ * cos(input.yaw)
+                        px = (px + worldX * 3.8f * dt / length).coerceIn(-118f, 118f)
+                        pz = (pz + worldZ * 3.8f * dt / length).coerceIn(-62f, 112f)
+                    }
+                    input.playerX = px
+                    input.playerZ = pz
                     player.position = Position(x = px, y = 0.12f, z = pz)
                     player.rotation = Rotation(y = input.yaw * 180f / PI.toFloat() + 180f)
                 }
+
+                // Independent orbit camera: full 360° yaw and adjustable elevation.
+                val followX = if (input.driving) input.carX else px
+                val followZ = if (input.driving) input.carZ else pz
                 cameraNode.position = Position(
-                    x = px + sin(input.yaw) * 6.0f,
-                    y = 3.45f,
-                    z = pz + cos(input.yaw) * 6.0f
+                    x = followX + sin(input.yaw) * 8.2f,
+                    y = input.cameraHeight,
+                    z = followZ + cos(input.yaw) * 8.2f
                 )
-                cameraNode.lookAt(Position(x = px, y = 1.15f, z = pz))
+                cameraNode.lookAt(Position(x = followX, y = 1.15f, z = followZ))
 
                 val target = npcRoute[segment]
                 val nx = target.x - npc.position.x
@@ -292,6 +343,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     lastNear = nowNear
                     nearNpc = nowNear
                 }
+                val carNearby = !input.driving && sqrt((px - input.carX) * (px - input.carX) + (pz - input.carZ) * (pz - input.carZ)) < 6.5f
+                if (carNearby != nearCar) nearCar = carNearby
                 val homeNearby = sqrt((px + 28f) * (px + 28f) + (pz - 24f) * (pz - 24f)) < 7f
                 if (homeNearby != lastNearHome) {
                     lastNearHome = homeNearby
@@ -318,14 +371,14 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             onFrame = { }
         )
 
-        // Drag on the open right side to orbit the third-person camera.
+        // Drag on the open right side: unbounded 360° orbit; vertical drag raises/lowers view.
         Box(
             Modifier.fillMaxHeight().fillMaxWidth(0.57f).align(Alignment.CenterEnd)
                 .pointerInput(Unit) {
                     detectDragGestures { change, drag ->
                         change.consume()
-                        input.yaw += drag.x * 0.0045f
-                        input.yaw = input.yaw.coerceIn(-1.25f, 1.25f)
+                        input.yaw += drag.x * 0.008f
+                        input.cameraHeight = (input.cameraHeight - drag.y * 0.018f).coerceIn(2.2f, 9.5f)
                     }
                 }
         )
@@ -356,7 +409,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Text("LIVE WORLD", color = Color(0xFFFFD99A), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Text(if (loading) loadMessage else "AARAV  •  MEERA  •  GOLGHAR", color = Color.White, fontSize = 9.sp)
-                Text("Drag right side to look", color = Color(0xFFB4C5C3), fontSize = 9.sp)
+                Text(if (drivingUi) "DRIVING  •  VEHICLE" else "ON FOOT  •  360° CAMERA", color = Color(0xFFB4C5C3), fontSize = 9.sp)
+                Text("Drag right side to orbit / tilt", color = Color(0xFFB4C5C3), fontSize = 9.sp)
             }
         }
 
@@ -379,6 +433,28 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Button(
+                onClick = {
+                    if (input.driving) {
+                        // Step out on the passenger side and resume walking.
+                        input.playerX = input.carX + cos(input.carYaw) * 2.3f
+                        input.playerZ = input.carZ - sin(input.carYaw) * 2.3f
+                        input.driving = false
+                        input.carSpeed = 0f
+                        input.yaw = input.carYaw
+                        drivingUi = false
+                    } else if (nearCar && vehicleNode != null) {
+                        input.driving = true
+                        input.carSpeed = 0f
+                        input.yaw = input.carYaw
+                        drivingUi = true
+                        dialogue = "Aarav: Seat belt laga li. ▲ accelerate, ▼ reverse/brake, left/right steer."
+                    }
+                },
+                enabled = if (input.driving) true else nearCar && vehicleNode != null,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF66B5A7), contentColor = Color(0xFF142220)),
+                shape = RoundedCornerShape(14.dp)
+            ) { Text(if (drivingUi) "EXIT VEHICLE" else "GET IN CAR", fontWeight = FontWeight.Black, letterSpacing = 0.7.sp) }
             Button(
                 onClick = {
                     when {

@@ -83,12 +83,12 @@ private class PatnaInput {
     var yaw = 0f
     var cameraHeight = 4.3f
     // Camera target height is the pitch control: swipe up to look towards the horizon/sky.
-    var cameraLookHeight = 1.45f
+    var cameraLookHeight = 2.2f
     var interact = false
     var driving = false
     var playerX = -18f
     var playerZ = 18f
-    var carX = -5f
+    var carX = -9.5f
     var carZ = 18f
     var carYaw = 0f
     var carSpeed = 0f
@@ -171,6 +171,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         sceneNodes += PlaneNode(engine, size = Size(x = 1000f, y = 0f, z = 1000f), normal = Direction(y = -1f), materialInstance = skyBlue).apply { position = Position(x = 0f, y = 520f, z = 0f) }
         sceneNodes += PlaneNode(engine, size = Size(x = 240f, y = 0f, z = 48f), normal = Direction(y = 1f), materialInstance = water).apply { position = Position(x = 0f, y = 0.035f, z = -96f) }
         sceneNodes += PlaneNode(engine, size = Size(x = 12f, y = 0f, z = 188f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = 0f, y = 0.07f, z = 10f) }
+        // A paved lay-by beside the main avenue makes the player's SUV visible at spawn.
+        sceneNodes += PlaneNode(engine, size = Size(x = 16f, y = 0f, z = 10f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = -12f, y = 0.075f, z = 18f) }
         sceneNodes += PlaneNode(engine, size = Size(x = 800f, y = 0f, z = 10f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = 45f, y = 0.075f, z = 24f) }
         sceneNodes += PlaneNode(engine, size = Size(x = 800f, y = 0f, z = 8f), normal = Direction(y = 1f), materialInstance = sidewalk).apply { position = Position(x = 45f, y = 0.09f, z = 33f) }
         sceneNodes += PlaneNode(engine, size = Size(x = 800f, y = 0f, z = 8f), normal = Direction(y = 1f), materialInstance = sidewalk).apply { position = Position(x = 45f, y = 0.09f, z = 15f) }
@@ -319,6 +321,13 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         )
         val workerSegments = IntArray(pedestrianNodes.size)
         val workerPauses = FloatArray(pedestrianNodes.size)
+        val trafficWheelNodes = trafficNodes.map { car ->
+            car.renderableNodes.filter { renderable ->
+                val partName = renderable.name.orEmpty().lowercase()
+                partName.contains("wheel") || partName.contains("tire") || partName.contains("tyre")
+            }
+        }
+        val trafficWheelAngles = FloatArray(trafficNodes.size)
         while (true) {
             withFrameNanos { now ->
                 val dt = if (previous == 0L) 0.016f else ((now - previous) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
@@ -445,14 +454,20 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
 
                 // Autonomous cars cruise long avenue loops with a fixed lane and speed.
                 trafficNodes.getOrNull(0)?.let { traffic ->
-                    val nextZ = traffic.position.z - 6.5f * dt
-                    traffic.position = Position(x = 0f, y = 0.12f, z = if (nextZ < -180f) 180f else nextZ)
+                    val trafficSpeed = 6.5f
+                    val nextZ = traffic.position.z - trafficSpeed * dt
+                    traffic.position = Position(x = 4f, y = 0.12f, z = if (nextZ < -180f) 180f else nextZ)
                     traffic.rotation = Rotation(y = 0f)
+                    trafficWheelAngles[0] += trafficSpeed * dt / 0.37f * 180f / PI.toFloat()
+                    trafficWheelNodes[0].forEach { it.rotation = Rotation(x = trafficWheelAngles[0]) }
                 }
                 trafficNodes.getOrNull(1)?.let { traffic ->
-                    val nextZ = traffic.position.z + 7.2f * dt
+                    val trafficSpeed = 7.2f
+                    val nextZ = traffic.position.z + trafficSpeed * dt
                     traffic.position = Position(x = 180f, y = 0.12f, z = if (nextZ > 180f) -180f else nextZ)
                     traffic.rotation = Rotation(y = 180f)
+                    trafficWheelAngles[1] -= trafficSpeed * dt / 0.37f * 180f / PI.toFloat()
+                    trafficWheelNodes[1].forEach { it.rotation = Rotation(x = trafficWheelAngles[1]) }
                 }
 
                 val nowNear = sqrt(

@@ -71,6 +71,8 @@ private const val HIGHRISE_GLB = "https://www.innerscene.com/api/library/mixed-u
 private const val BANK_GLB = "https://grab3d.com/dl/bank/bank.glb"
 private const val UNIVERSITY_GLB = "https://grab3d.com/dl/university-building/university-building.glb"
 private const val POWER_PLANT_GLB = "https://grab3d.com/dl/power-plant/power-plant.glb"
+private const val BUSINESSMAN_GLB = "https://grab3d.com/dl/businessman-rigged/businessman-rigged.glb"
+private const val FARMER_GLB = "https://grab3d.com/dl/farmer-rigged/farmer-rigged.glb"
 
 private class PatnaInput {
     var forward = false
@@ -79,18 +81,40 @@ private class PatnaInput {
     var right = false
     // Camera yaw is deliberately unbounded: a full orbit is allowed.
     var yaw = 0f
-    var cameraHeight = 3.5f
+    var cameraHeight = 4.3f
+    // Camera target height is the pitch control: swipe up to look towards the horizon/sky.
+    var cameraLookHeight = 1.45f
     var interact = false
     var driving = false
     var playerX = -18f
     var playerZ = 18f
-    var carX = -13.5f
-    var carZ = 17.5f
+    var carX = -8.5f
+    var carZ = 18f
     var carYaw = 0f
     var carSpeed = 0f
 }
 
 private data class ActorWaypoint(val x: Float, val z: Float, val pause: Float = 0f)
+private data class WorldCollider(val minX: Float, val maxX: Float, val minZ: Float, val maxZ: Float)
+
+private val PATNA_COLLIDERS = listOf(
+    WorldCollider(-38f, -18f, 16f, 32f),   // riverside home
+    WorldCollider(-62f, -42f, -12f, 4f),   // second home
+    WorldCollider(51f, 61f, -37f, -19f),   // Golghar
+    WorldCollider(52f, 108f, -48f, -4f),   // mixed-use high-rise
+    WorldCollider(62f, 78f, 19f, 37f),     // bank
+    WorldCollider(-93f, -59f, 16f, 42f),   // university
+    WorldCollider(73f, 115f, -72f, -36f),  // power plant
+    WorldCollider(24f, 32f, 15f, 21f),     // bus shelter
+    WorldCollider(19f, 27f, -33f, -23f),   // market stand
+    WorldCollider(17f, 23f, 63f, 70f),     // parked traffic 1
+    WorldCollider(62f, 70f, -80f, -72f),  // parked traffic 2
+    WorldCollider(-52f, -44f, -92f, -84f) // parked traffic 3
+)
+
+private fun hitsWorld(x: Float, z: Float, radius: Float): Boolean =
+    x - radius < -480f || x + radius > 480f || z - radius < -480f || z + radius > 480f ||
+        PATNA_COLLIDERS.any { x + radius > it.minX && x - radius < it.maxX && z + radius > it.minZ && z - radius < it.maxZ }
 
 /**
  * A third-person, real-time 3D vertical slice set in a fictional 2047 expansion of Patna. This feature branch is APK-build validated by CI.
@@ -120,6 +144,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var nearGolghar by remember { mutableStateOf(false) }
     var nearCar by remember { mutableStateOf(false) }
     var drivingUi by remember { mutableStateOf(false) }
+    var isDriving by remember { mutableStateOf(false) }
+    var pedestrianNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
     var vehicleNode by remember { mutableStateOf<ModelNode?>(null) }
 
     val grass = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF71835C), roughness = 0.96f) }
@@ -131,15 +157,29 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     val darkStone = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF604E40), roughness = 0.9f) }
     val roadPaint = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFFE8DDB7), roughness = 0.7f) }
     val parkGreen = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF506E48), roughness = 0.96f) }
+    val skyBlue = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF83B9DF), roughness = 1f) }
 
     LaunchedEffect(Unit) {
         // First render the complete land, roads and river so the player sees the world immediately.
-        sceneNodes += PlaneNode(engine, size = Size(x = 260f, y = 0f, z = 260f), normal = Direction(y = 1f), materialInstance = grass)
+        sceneNodes += PlaneNode(engine, size = Size(x = 1000f, y = 0f, z = 1000f), normal = Direction(y = 1f), materialInstance = grass)
+        // Blue sky enclosure replaces the black void around the mobile 3D scene.
+        sceneNodes += PlaneNode(engine, size = Size(x = 1000f, y = 520f, z = 0f), normal = Direction(z = 1f), materialInstance = skyBlue).apply { position = Position(x = 0f, y = 260f, z = -490f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 1000f, y = 520f, z = 0f), normal = Direction(z = -1f), materialInstance = skyBlue).apply { position = Position(x = 0f, y = 260f, z = 490f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 0f, y = 520f, z = 1000f), normal = Direction(x = 1f), materialInstance = skyBlue).apply { position = Position(x = -490f, y = 260f, z = 0f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 0f, y = 520f, z = 1000f), normal = Direction(x = -1f), materialInstance = skyBlue).apply { position = Position(x = 490f, y = 260f, z = 0f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 1000f, y = 0f, z = 1000f), normal = Direction(y = -1f), materialInstance = skyBlue).apply { position = Position(x = 0f, y = 520f, z = 0f) }
         sceneNodes += PlaneNode(engine, size = Size(x = 240f, y = 0f, z = 48f), normal = Direction(y = 1f), materialInstance = water).apply { position = Position(x = 0f, y = 0.035f, z = -96f) }
         sceneNodes += PlaneNode(engine, size = Size(x = 12f, y = 0f, z = 188f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = 0f, y = 0.07f, z = 10f) }
-        sceneNodes += PlaneNode(engine, size = Size(x = 174f, y = 0f, z = 10f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = 45f, y = 0.075f, z = 24f) }
-        sceneNodes += PlaneNode(engine, size = Size(x = 174f, y = 0f, z = 8f), normal = Direction(y = 1f), materialInstance = sidewalk).apply { position = Position(x = 45f, y = 0.09f, z = 33f) }
-        sceneNodes += PlaneNode(engine, size = Size(x = 174f, y = 0f, z = 8f), normal = Direction(y = 1f), materialInstance = sidewalk).apply { position = Position(x = 45f, y = 0.09f, z = 15f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 800f, y = 0f, z = 10f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = 45f, y = 0.075f, z = 24f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 800f, y = 0f, z = 8f), normal = Direction(y = 1f), materialInstance = sidewalk).apply { position = Position(x = 45f, y = 0.09f, z = 33f) }
+        sceneNodes += PlaneNode(engine, size = Size(x = 800f, y = 0f, z = 8f), normal = Direction(y = 1f), materialInstance = sidewalk).apply { position = Position(x = 45f, y = 0.09f, z = 15f) }
+        // An extended street grid: no invisible wall after one short block.
+        for (z in listOf(-220f, -110f, 140f, 250f, 360f)) {
+            sceneNodes += PlaneNode(engine, size = Size(x = 900f, y = 0f, z = 8f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = 0f, y = 0.07f, z = z) }
+        }
+        for (x in listOf(-180f, 180f, 360f)) {
+            sceneNodes += PlaneNode(engine, size = Size(x = 8f, y = 0f, z = 900f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = x, y = 0.07f, z = 0f) }
+        }
         sceneNodes += PlaneNode(engine, size = Size(x = 150f, y = 0f, z = 7f), normal = Direction(y = 1f), materialInstance = sidewalk).apply { position = Position(x = -3f, y = 0.09f, z = -57f) }
         sceneNodes += PlaneNode(engine, size = Size(x = 150f, y = 0f, z = 4f), normal = Direction(y = 1f), materialInstance = asphalt).apply { position = Position(x = -3f, y = 0.08f, z = -65f) }
         // Dash markings and a broad river crossing.
@@ -181,9 +221,16 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         // Keep detailed assets sparse for mobile GPU/thermal headroom.
         addModel(HOUSE_GLB, 17f, Position(x = -28f, y = 0f, z = 24f), yaw = 90f)
         addModel(HOUSE_GLB, 14f, Position(x = -52f, y = 0f, z = -4f), yaw = 0f)
-        val boy = addModel(MAN_GLB, 1.78f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
-        val girl = addModel(WOMAN_GLB, 1.7f, Position(x = -21f, y = 0.12f, z = 20f), yaw = 180f, walk = true)
-        vehicleNode = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 90f)
+        // Character assets are physically sized (human height, in metres), not giant scaled props.
+        val boy = addModel(MAN_GLB, 1.72f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
+        val girl = addModel(WOMAN_GLB, 1.62f, Position(x = -30f, y = 0.12f, z = 20f), yaw = 180f, walk = true)
+        val businessman = addModel(BUSINESSMAN_GLB, 1.72f, Position(x = 34f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
+        val farmer = addModel(FARMER_GLB, 1.78f, Position(x = 18f, y = 0.12f, z = -25f), yaw = 90f, walk = true)
+        vehicleNode = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 0f)
+        // More vehicles make the streets feel occupied; these are parked for now.
+        addModel(SUV_GLB, 4.7f, Position(x = 20f, y = 0.12f, z = 66f), yaw = 0f)
+        addModel(SUV_GLB, 4.7f, Position(x = 66f, y = 0.12f, z = -76f), yaw = 180f)
+        addModel(SUV_GLB, 4.7f, Position(x = -48f, y = 0.12f, z = -88f), yaw = 90f)
         // Large, textured city silhouettes and real-scale civic buildings widen the skyline.
         // Load the large 23 MB tower in parallel so it never blocks the first playable frame.
         launch { addModel(HIGHRISE_GLB, 118f, Position(x = 80f, y = 0f, z = -26f), yaw = 0f) }
@@ -225,7 +272,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var nearNpc by remember { mutableStateOf(false) }
     val npcRoute = remember {
         listOf(
-            ActorWaypoint(-21f, 20f, 1.2f),
+            ActorWaypoint(-30f, 20f, 1.2f),
             ActorWaypoint(-8f, 5f, 0.5f),
             ActorWaypoint(23f, -28f, 2.5f),
             ActorWaypoint(-20f, -43f, 5.0f),
@@ -238,9 +285,10 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         val animated = sceneNodes.filterIsInstance<ModelNode>().filter { it.animationCount > 0 }
         playerNode = animated.getOrNull(0)
         npcNode = animated.getOrNull(1)
+        pedestrianNodes = animated.drop(2)
     }
 
-    LaunchedEffect(worldReady, playerNode, npcNode, vehicleNode) {
+    LaunchedEffect(worldReady, playerNode, npcNode, vehicleNode, pedestrianNodes) {
         val player = playerNode ?: return@LaunchedEffect
         val npc = npcNode ?: return@LaunchedEffect
         if (!worldReady) return@LaunchedEffect
@@ -254,6 +302,12 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         var lastNearGolghar = false
         var lastMoving: Boolean? = null
         var lastNpcWalking: Boolean? = null
+        val workerRoutes = listOf(
+            listOf(ActorWaypoint(34f, 18f, 1.2f), ActorWaypoint(40f, 18f, 0.6f), ActorWaypoint(40f, 27f, 1.5f), ActorWaypoint(34f, 27f, 0.6f)),
+            listOf(ActorWaypoint(18f, -25f, 1.5f), ActorWaypoint(17f, -31f, 0.6f), ActorWaypoint(27f, -31f, 1.8f), ActorWaypoint(28f, -25f, 0.6f))
+        )
+        val workerSegments = IntArray(pedestrianNodes.size)
+        val workerPauses = FloatArray(pedestrianNodes.size)
         while (true) {
             withFrameNanos { now ->
                 val dt = if (previous == 0L) 0.016f else ((now - previous) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
@@ -270,12 +324,19 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     val steering = (if (input.right) 1f else 0f) - (if (input.left) 1f else 0f)
                     if (kotlin.math.abs(input.carSpeed) > 0.2f) {
                         val travelDirection = if (input.carSpeed >= 0f) 1f else -1f
-                        input.carYaw -= steering * 1.35f * dt * travelDirection
+                        input.carYaw -= steering * 1.15f * dt * travelDirection
                     }
-                    input.carX = (input.carX - sin(input.carYaw) * input.carSpeed * dt).coerceIn(-118f, 118f)
-                    input.carZ = (input.carZ - cos(input.carYaw) * input.carSpeed * dt).coerceIn(-62f, 112f)
+                    // The SUV asset's forward axis is -Z; motion and model yaw now match.
+                    val nextCarX = input.carX - sin(input.carYaw) * input.carSpeed * dt
+                    val nextCarZ = input.carZ - cos(input.carYaw) * input.carSpeed * dt
+                    if (hitsWorld(nextCarX, nextCarZ, 2.5f)) {
+                        input.carSpeed = 0f
+                    } else {
+                        input.carX = nextCarX
+                        input.carZ = nextCarZ
+                    }
                     vehicle.position = Position(x = input.carX, y = 0.12f, z = input.carZ)
-                    vehicle.rotation = Rotation(y = 90f + input.carYaw * 180f / PI.toFloat())
+                    vehicle.rotation = Rotation(y = input.carYaw * 180f / PI.toFloat())
                     px = input.carX
                     pz = input.carZ
                     player.position = Position(x = px, y = -35f, z = pz)
@@ -296,8 +357,15 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         // Screen-up is forward, screen-left is left, relative to the camera heading.
                         val worldX = moveX * cos(input.yaw) - moveZ * sin(input.yaw)
                         val worldZ = -moveX * sin(input.yaw) - moveZ * cos(input.yaw)
-                        px = (px + worldX * 3.8f * dt / length).coerceIn(-118f, 118f)
-                        pz = (pz + worldZ * 3.8f * dt / length).coerceIn(-62f, 112f)
+                        val nextX = px + worldX * 3.8f * dt / length
+                        val nextZ = pz + worldZ * 3.8f * dt / length
+                        // Axis-separated collision response lets the player slide along walls, not through them.
+                        if (!hitsWorld(nextX, pz, 0.45f) &&
+                            sqrt((nextX - input.carX) * (nextX - input.carX) + (pz - input.carZ) * (pz - input.carZ)) > 3.0f
+                        ) px = nextX
+                        if (!hitsWorld(px, nextZ, 0.45f) &&
+                            sqrt((px - input.carX) * (px - input.carX) + (nextZ - input.carZ) * (nextZ - input.carZ)) > 3.0f
+                        ) pz = nextZ
                         val facingYaw = kotlin.math.atan2(-worldX, -worldZ)
                         player.rotation = Rotation(y = facingYaw * 180f / PI.toFloat() + 180f)
                     }
@@ -315,7 +383,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     y = input.cameraHeight,
                     z = followZ + cos(input.yaw) * followDistance
                 )
-                cameraNode.lookAt(Position(x = followX, y = 1.15f, z = followZ))
+                cameraNode.lookAt(Position(x = followX, y = input.cameraLookHeight, z = followZ))
 
                 val target = npcRoute[segment]
                 val nx = target.x - npc.position.x
@@ -350,7 +418,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     lastNear = nowNear
                     nearNpc = nowNear
                 }
-                val carNearby = !input.driving && sqrt((px - input.carX) * (px - input.carX) + (pz - input.carZ) * (pz - input.carZ)) < 6.5f
+                val carNearby = !input.driving && sqrt((px - input.carX) * (px - input.carX) + (pz - input.carZ) * (pz - input.carZ)) < 11f
                 if (carNearby != nearCar) nearCar = carNearby
                 val homeNearby = sqrt((px + 28f) * (px + 28f) + (pz - 24f) * (pz - 24f)) < 7f
                 if (homeNearby != lastNearHome) {
@@ -358,6 +426,26 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     nearHome = homeNearby
                 }
                 val golgharNearby = sqrt((px - 56f) * (px - 56f) + (pz + 28f) * (pz + 28f)) < 11f
+                // Independent pedestrian routes around the bus stop and market stall.
+                pedestrianNodes.forEachIndexed { index, worker ->
+                    val route = workerRoutes.getOrNull(index) ?: return@forEachIndexed
+                    val targetWorker = route[workerSegments[index]]
+                    val wx = targetWorker.x - worker.position.x
+                    val wz = targetWorker.z - worker.position.z
+                    val workerDistance = sqrt(wx * wx + wz * wz)
+                    if (workerDistance < 0.5f) {
+                        if (workerPauses[index] < targetWorker.pause) workerPauses[index] += dt
+                        else {
+                            workerPauses[index] = 0f
+                            workerSegments[index] = (workerSegments[index] + 1) % route.size
+                        }
+                    } else {
+                        val step = (1.25f * dt).coerceAtMost(workerDistance)
+                        worker.position = Position(x = worker.position.x + wx / workerDistance * step, y = 0.12f, z = worker.position.z + wz / workerDistance * step)
+                        worker.rotation = Rotation(y = kotlin.math.atan2(wx, wz) * 180f / PI.toFloat() + 180f)
+                        worker.setAnimationSpeed(0, 0.82f)
+                    }
+                }
                 if (golgharNearby != lastNearGolghar) {
                     lastNearGolghar = golgharNearby
                     nearGolghar = golgharNearby
@@ -385,7 +473,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     detectDragGestures { change, drag ->
                         change.consume()
                         input.yaw += drag.x * 0.008f
-                        input.cameraHeight = (input.cameraHeight - drag.y * 0.018f).coerceIn(2.2f, 9.5f)
+                        // Swipe up raises the look target so the camera can look level/skyward.
+                        input.cameraLookHeight = (input.cameraLookHeight - drag.y * 0.022f).coerceIn(0.35f, 24f)
                     }
                 }
         )
@@ -448,14 +537,16 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 onClick = {
                     if (input.driving) {
                         // Step out on the passenger side and resume walking.
-                        input.playerX = input.carX + cos(input.carYaw) * 2.3f
-                        input.playerZ = input.carZ - sin(input.carYaw) * 2.3f
+                        input.playerX = input.carX + 2.8f
+                        input.playerZ = input.carZ + 1.2f
                         input.driving = false
+                        isDriving = false
                         input.carSpeed = 0f
                         input.yaw = input.carYaw
                         drivingUi = false
                     } else if (nearCar && vehicleNode != null) {
                         input.driving = true
+                        isDriving = true
                         input.carSpeed = 0f
                         input.yaw = input.carYaw
                         drivingUi = true
@@ -465,7 +556,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 enabled = if (input.driving) true else nearCar && vehicleNode != null,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF66B5A7), contentColor = Color(0xFF142220)),
                 shape = RoundedCornerShape(14.dp)
-            ) { Text(if (drivingUi) "EXIT VEHICLE" else "GET IN CAR", fontWeight = FontWeight.Black, letterSpacing = 0.7.sp) }
+            ) { Text(if (isDriving) "EXIT VEHICLE" else "GET IN CAR", fontWeight = FontWeight.Black, letterSpacing = 0.7.sp) }
             Button(
                 onClick = {
                     when {

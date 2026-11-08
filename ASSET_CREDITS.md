@@ -12,6 +12,14 @@ This branch uses original game code plus remote GLB models from Grab3D. The sour
 | Street Light | https://grab3d.com/models/city/street-light/ | https://grab3d.com/dl/street-light/street-light.glb |
 | Bus Stop Shelter | https://grab3d.com/models/city/bus-stop-shelter/ | https://grab3d.com/dl/bus-stop-shelter/bus-stop-shelter.glb |
 | Farm Stand (market / vegetable stall) | https://grab3d.com/models/buildings/farm-stand/ | https://grab3d.com/dl/farm-stand/farm-stand.glb |
+| Mixed-use High-rise (134.6 m tower, textured GLB) | https://www.innerscene.com/tools/library/3d-parts/mixed-use-high-rise-27a41221 | https://www.innerscene.com/api/library/mixed-use-high-rise-27a41221/download |
+| City Bank (civic building) | https://grab3d.com/models/buildings/bank/ | https://grab3d.com/dl/bank/bank.glb |
+| University Building (clock-tower landmark) | https://grab3d.com/models/buildings/university-building/ | https://grab3d.com/dl/university-building/university-building.glb |
+| Power Plant (industrial skyline) | https://grab3d.com/models/buildings/power-plant/ | https://grab3d.com/dl/power-plant/power-plant.glb |
+
+The Mixed-use High-rise is an original Innerscene model with a stated 56.2 × 42.3 m footprint and 134.6 m overall height; the publisher identifies it as CC0 and the downloaded GLB is about 23.1 MB. Its download API is used as a remote HTTPS GLB URL.
+
+The additional Grab3D bank, university and power-plant models are lightweight PBR GLBs, each listed by the publisher as CC0 1.0. They broaden the skyline, but their art direction is stylized rather than photorealistic.
 
 Grab3D licence: https://grab3d.com/license/
 CC0 1.0: https://creativecommons.org/publicdomain/zero/1.0/

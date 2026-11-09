@@ -15,7 +15,7 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 ## In progress
 
 1. **Human proportions and NPC routines** — PR #2 measures each loaded character's vertical bounds for scaling and separates bank/market routes. Needs real-device or emulator visual verification, especially feet grounding and scale beside the SUV/buildings.
-2. **Save/resume foundation** — persist player/vehicle location, camera orientation, driving mode and the first story flag locally with Preferences DataStore. This is a small offline save, not cloud sync or a full save-slot system.
+2. **Save/resume foundation** — implemented on PR #2 with Preferences DataStore: player/vehicle location, camera orientation, driving mode and the first story flag are saved locally on a five-second cadence, app stop, vehicle transitions and mission completion. CI and device relaunch verification are pending; this is not cloud sync or a multi-slot system.
 
 ## Prioritized next milestones
 

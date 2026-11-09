@@ -56,7 +56,7 @@ jobs:
       - name: Upload Milestone APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: THE-LAST-ALCHEMIST-PHASE-05-STORY-MEMORY-APK
+          name: PATNA-2047-DEBUG-APK
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 

@@ -1,6 +1,6 @@
 {
-  "name": "The Last Alchemist",
-  "description": "A first-person 3D mystery, puzzle, and exploration adventure game set in an abandoned underground magical alchemy academy.",
+  "name": "Patna 2047",
+  "description": "A mobile third-person open-world Indian city driving and exploration game set in a fictional near-future Patna, with pedestrians, vehicles, missions and a Ganga riverfront.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

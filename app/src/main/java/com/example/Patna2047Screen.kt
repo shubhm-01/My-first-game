@@ -207,8 +207,10 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var objective by remember { mutableStateOf("Explore the riverfront and meet Meera.") }
     var showJournal by remember { mutableStateOf(false) }
     var hasMet by remember { mutableStateOf(false) }
+    var saveReady by remember { mutableStateOf(false) }
     var saveStatus by remember { mutableStateOf("LOADING") }
     fun persistGameState() {
+        if (!saveReady) return
         saveScope.launch {
             saveStatus = if (context.savePatna2047Save(input.snapshot(hasMet))) "SAVED" else "SAVE ERROR"
         }
@@ -259,6 +261,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             "Ganga ke kinare ek nayi subah…"
         }
         saveStatus = if (restoredSave == null) "NEW SAVE" else "READY"
+        saveReady = true
 
         // First render the complete land, roads and river so the player sees the world immediately.
         sceneNodes += PlaneNode(engine, size = Size(x = 1000f, y = 0f, z = 1000f), normal = Direction(y = 1f), materialInstance = grass)

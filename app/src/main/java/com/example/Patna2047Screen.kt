@@ -52,6 +52,7 @@ import io.github.sceneview.geometries.UvCoordinate
 import io.github.sceneview.math.Direction
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
+import io.github.sceneview.math.Scale
 import io.github.sceneview.math.Size
 import kotlin.math.PI
 import kotlin.math.cos
@@ -95,6 +96,38 @@ private class PatnaInput {
 }
 
 private data class ActorWaypoint(val x: Float, val z: Float, val pause: Float = 0f)
+private data class PedestrianRoutine(
+    val node: ModelNode,
+    val waypoints: List<ActorWaypoint>,
+    val walkAnimationSpeed: Float
+)
+
+/**
+ * Converts a model's measured, unscaled vertical AABB height into a uniform scale.
+ * Returns 1f for invalid bounds so malformed GLBs never create Infinity/NaN transforms.
+ */
+internal fun uniformScaleForCharacterHeight(unscaledHeightMeters: Float, targetHeightMeters: Float): Float =
+    if (unscaledHeightMeters.isFinite() && unscaledHeightMeters > 0f &&
+        targetHeightMeters.isFinite() && targetHeightMeters > 0f
+    ) targetHeightMeters / unscaledHeightMeters else 1f
+
+private val BANK_EMPLOYEE_WAYPOINTS = listOf(
+    ActorWaypoint(34f, 18f, 2.0f),
+    ActorWaypoint(48f, 18f, 0.8f),
+    ActorWaypoint(56f, 18f, 7.0f),
+    ActorWaypoint(56f, 40f, 0.8f),
+    ActorWaypoint(48f, 40f, 1.2f),
+    ActorWaypoint(34f, 18f, 5.0f)
+)
+
+private val MARKET_FARMER_WAYPOINTS = listOf(
+    ActorWaypoint(15f, -20f, 1.5f),
+    ActorWaypoint(15f, -36f, 0.8f),
+    ActorWaypoint(28f, -36f, 0.8f),
+    ActorWaypoint(28f, -22f, 7.0f),
+    ActorWaypoint(15f, -20f, 4.0f)
+)
+
 private data class WorldCollider(val minX: Float, val maxX: Float, val minZ: Float, val maxZ: Float)
 
 private val PATNA_COLLIDERS = listOf(
@@ -144,6 +177,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var nearGolghar by remember { mutableStateOf(false) }
     var nearCar by remember { mutableStateOf(false) }
         var pedestrianNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
+    var pedestrianRoutines by remember { mutableStateOf<List<PedestrianRoutine>>(emptyList()) }
     var vehicleNode by remember { mutableStateOf<ModelNode?>(null) }
     var trafficNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
 
@@ -199,14 +233,34 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         sceneNodes += PlaneNode(engine, size = Size(x = 1.8f, y = 2.4f, z = 0f), normal = Direction(z = 1f), materialInstance = darkStone).apply { position = Position(x = 56f, y = 1.2f, z = -19.65f) }
         loadMessage = "Loading people, homes and city assets…"
 
-        suspend fun addModel(url: String, scale: Float, at: Position, yaw: Float = 0f, walk: Boolean = false): ModelNode? {
+        suspend fun addModel(
+            url: String,
+            scale: Float,
+            at: Position,
+            yaw: Float = 0f,
+            walk: Boolean = false,
+            targetHeightMeters: Float? = null
+        ): ModelNode? {
             return try {
                 val instance = modelLoader.loadModelInstance(url)
                 if (instance == null) {
                     loadMessage = "Some city assets are unavailable. Continuing with the 3D city…"
                     null
                 } else {
-                    ModelNode(instance, autoAnimate = false, scaleToUnits = scale).also { node ->
+                    ModelNode(
+                        instance,
+                        autoAnimate = false,
+                        // scaleToUnits fits a cube, not a human's vertical stature. For people,
+                        // start from the asset's native AABB and scale from its measured Y height.
+                        scaleToUnits = if (targetHeightMeters == null) scale else null
+                    ).also { node ->
+                        if (targetHeightMeters != null) {
+                            val nativeHeightMeters = node.halfExtent.y * 2f
+                            val uniformScale = uniformScaleForCharacterHeight(nativeHeightMeters, targetHeightMeters)
+                            if (uniformScale.isFinite() && uniformScale > 0f) {
+                                node.scale = Scale(uniformScale)
+                            }
+                        }
                         node.rotation = Rotation(y = yaw)
                         // SceneView 2.2.1's centerOrigin(0,-1,0) uses an older offset rule.
                         // Compute the rotated AABB bottom point directly so every GLB sits on the ground.
@@ -239,11 +293,16 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         // Keep detailed assets sparse for mobile GPU/thermal headroom.
         addModel(HOUSE_GLB, 17f, Position(x = -28f, y = 0f, z = 24f), yaw = 90f)
         addModel(HOUSE_GLB, 14f, Position(x = -52f, y = 0f, z = -4f), yaw = 0f)
-        // Character assets are physically sized (human height, in metres), not giant scaled props.
-        val boy = addModel(MAN_GLB, 1.72f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
-        val girl = addModel(WOMAN_GLB, 1.62f, Position(x = -14f, y = 0.12f, z = 34f), yaw = 180f, walk = true)
-        val businessman = addModel(BUSINESSMAN_GLB, 1.72f, Position(x = 34f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
-        val farmer = addModel(FARMER_GLB, 1.78f, Position(x = 15f, y = 0.12f, z = -20f), yaw = 90f, walk = true)
+        // Adult actors are sized by their actual vertical model bounds, not a bounding cube.
+        val boy = addModel(MAN_GLB, 1f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true, targetHeightMeters = 1.72f)
+        val girl = addModel(WOMAN_GLB, 1f, Position(x = -14f, y = 0.12f, z = 34f), yaw = 180f, walk = true, targetHeightMeters = 1.64f)
+        val businessman = addModel(BUSINESSMAN_GLB, 1f, Position(x = 34f, y = 0.12f, z = 18f), yaw = 180f, walk = true, targetHeightMeters = 1.76f)
+        val farmer = addModel(FARMER_GLB, 1f, Position(x = 15f, y = 0.12f, z = -20f), yaw = 90f, walk = true, targetHeightMeters = 1.68f)
+        pedestrianRoutines = listOfNotNull(
+            businessman?.let { PedestrianRoutine(it, BANK_EMPLOYEE_WAYPOINTS, 0.90f) },
+            farmer?.let { PedestrianRoutine(it, MARKET_FARMER_WAYPOINTS, 0.82f) }
+        )
+        pedestrianNodes = pedestrianRoutines.map { it.node }
         vehicleNode = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 0f)
         // More vehicles make the streets feel occupied; these are parked for now.
         addModel(SUV_GLB, 4.7f, Position(x = 20f, y = 0.12f, z = 66f), yaw = 0f)
@@ -288,7 +347,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         loadMessage = "Patna 2047 • Ganga Riverfront"
     }
 
-    // The female character follows a small daily routine: home → market → river promenade → home.
+    // Meera follows a home → market → Ganga promenade → home daily routine.
     var playerNode by remember { mutableStateOf<ModelNode?>(null) }
     var npcNode by remember { mutableStateOf<ModelNode?>(null) }
     var nearNpc by remember { mutableStateOf(false) }
@@ -330,12 +389,10 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             partName.contains("wheel") || partName.contains("tire") || partName.contains("tyre")
         }.orEmpty()
         var wheelRotation = 0f
-        val workerRoutes = listOf(
-            listOf(ActorWaypoint(34f, 18f, 1.2f), ActorWaypoint(40f, 18f, 0.6f), ActorWaypoint(40f, 27f, 1.5f), ActorWaypoint(34f, 27f, 0.6f)),
-            listOf(ActorWaypoint(15f, -20f, 1.5f), ActorWaypoint(15f, -35f, 0.6f), ActorWaypoint(31f, -35f, 1.8f), ActorWaypoint(31f, -20f, 0.6f))
-        )
-        val workerSegments = IntArray(pedestrianNodes.size)
-        val workerPauses = FloatArray(pedestrianNodes.size)
+        // Each worker has a separate route and work stop: bank shift vs. market supply run.
+        val workerSegments = IntArray(pedestrianRoutines.size)
+        val workerPauses = FloatArray(pedestrianRoutines.size)
+        val workerLastWalking = BooleanArray(pedestrianRoutines.size) { true }
         val trafficWheelNodes = trafficNodes.map { car ->
             car.renderableNodes.filter { renderable ->
                 val partName = renderable.name.orEmpty().lowercase()
@@ -503,23 +560,32 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 }
                 val golgharNearby = sqrt((px - 56f) * (px - 56f) + (pz + 28f) * (pz + 28f)) < 11f
                 // Independent pedestrian routes around the bus stop and market stall.
-                pedestrianNodes.forEachIndexed { index, worker ->
-                    val route = workerRoutes.getOrNull(index) ?: return@forEachIndexed
+                pedestrianRoutines.forEachIndexed { index, routine ->
+                    val worker = routine.node
+                    val route = routine.waypoints
                     val targetWorker = route[workerSegments[index]]
                     val wx = targetWorker.x - worker.position.x
                     val wz = targetWorker.z - worker.position.z
                     val workerDistance = sqrt(wx * wx + wz * wz)
                     if (workerDistance < 0.5f) {
+                        // Stop the walk cycle at a work/rest stop instead of walking in place.
+                        if (workerLastWalking[index]) {
+                            if (worker.animationCount > 0) worker.setAnimationSpeed(0, 0f)
+                            workerLastWalking[index] = false
+                        }
                         if (workerPauses[index] < targetWorker.pause) workerPauses[index] += dt
                         else {
                             workerPauses[index] = 0f
                             workerSegments[index] = (workerSegments[index] + 1) % route.size
                         }
                     } else {
+                        if (!workerLastWalking[index]) {
+                            if (worker.animationCount > 0) worker.setAnimationSpeed(0, routine.walkAnimationSpeed)
+                            workerLastWalking[index] = true
+                        }
                         val step = (1.25f * dt).coerceAtMost(workerDistance)
                         worker.position = Position(x = worker.position.x + wx / workerDistance * step, y = 0.12f, z = worker.position.z + wz / workerDistance * step)
                         worker.rotation = Rotation(y = kotlin.math.atan2(wx, wz) * 180f / PI.toFloat() + 180f)
-                        worker.setAnimationSpeed(0, 0.82f)
                     }
                 }
                 if (golgharNearby != lastNearGolghar) {
@@ -580,7 +646,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         ) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Text("LIVE WORLD", color = Color(0xFFFFD99A), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                Text(if (loading) loadMessage else "AARAV  •  MEERA  •  GOLGHAR", color = Color.White, fontSize = 9.sp)
+                Text(if (loading) loadMessage else "AARAV  •  MEERA  •  BANK STAFF  •  MARKET FARMER", color = Color.White, fontSize = 9.sp)
                 Text(if (input.driving) "DRIVING  •  ${(input.carSpeed * 3.6f).toInt()} km/h" else "ON FOOT  •  360° CAMERA", color = Color(0xFFB4C5C3), fontSize = 9.sp)
                 Text("Drag right side to orbit / tilt", color = Color(0xFFB4C5C3), fontSize = 9.sp)
             }

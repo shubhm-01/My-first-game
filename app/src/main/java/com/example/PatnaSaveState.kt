@@ -1,15 +1,20 @@
 package com.example
 
 import android.content.Context
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
 import java.io.IOException
 import kotlin.math.PI
 
-private val Context.patna2047DataStore by preferencesDataStore(name = "patna_2047_save")
+private val Context.patna2047DataStore by preferencesDataStore(
+    name = "patna_2047_save",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 private object PatnaSaveKeys {
     val PLAYER_X = floatPreferencesKey("player_x")

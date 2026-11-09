@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "The Last Alchemist"
+rootProject.name = "Patna 2047"
 
 include(":app")

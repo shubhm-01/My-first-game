@@ -22,10 +22,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -33,9 +35,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.sceneview.Scene
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberMaterialLoader
@@ -93,6 +99,31 @@ private class PatnaInput {
     var carZ = 18f
     var carYaw = 0f
     var carSpeed = 0f
+
+    fun restore(saved: PatnaSaveState) {
+        val safe = saved.sanitized()
+        playerX = safe.playerX
+        playerZ = safe.playerZ
+        carX = safe.carX
+        carZ = safe.carZ
+        carYaw = safe.carYaw
+        yaw = safe.cameraYaw
+        cameraLookHeight = safe.cameraLookHeight
+        driving = safe.driving
+        carSpeed = 0f
+    }
+
+    fun snapshot(hasMet: Boolean): PatnaSaveState = PatnaSaveState(
+        playerX = playerX,
+        playerZ = playerZ,
+        carX = carX,
+        carZ = carZ,
+        carYaw = carYaw,
+        cameraYaw = yaw,
+        cameraLookHeight = cameraLookHeight,
+        hasMet = hasMet,
+        driving = driving
+    ).sanitized()
 }
 
 private data class ActorWaypoint(val x: Float, val z: Float, val pause: Float = 0f)
@@ -156,6 +187,9 @@ private fun hitsWorld(x: Float, z: Float, radius: Float): Boolean =
  */
 @Composable
 fun Patna2047Screen(modifier: Modifier = Modifier) {
+    val context = LocalContext.current.applicationContext
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val saveScope = rememberCoroutineScope()
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine)
     val materialLoader = rememberMaterialLoader(engine)
@@ -173,6 +207,22 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var objective by remember { mutableStateOf("Explore the riverfront and meet Meera.") }
     var showJournal by remember { mutableStateOf(false) }
     var hasMet by remember { mutableStateOf(false) }
+    var saveStatus by remember { mutableStateOf("LOADING") }
+    fun persistGameState() {
+        saveScope.launch {
+            saveStatus = if (context.savePatna2047Save(input.snapshot(hasMet))) "SAVED" else "SAVE ERROR"
+        }
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) persistGameState()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            persistGameState()
+        }
+    }
     var nearHome by remember { mutableStateOf(false) }
     var nearGolghar by remember { mutableStateOf(false) }
     var nearCar by remember { mutableStateOf(false) }
@@ -193,6 +243,23 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     val skyBlue = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF83B9DF), roughness = 1f) }
 
     LaunchedEffect(Unit) {
+        // Restore the small offline game save before placing the player and vehicle.
+        val restoredSave = context.loadPatna2047Save()
+        val safeSave = (restoredSave ?: PatnaSaveState()).sanitized()
+        input.restore(safeSave)
+        hasMet = safeSave.hasMet
+        objective = if (safeSave.hasMet) {
+            "Story 01 complete. Explore Golghar next."
+        } else {
+            "Explore the riverfront and meet Meera."
+        }
+        dialogue = if (safeSave.hasMet) {
+            "Welcome back to Patna 2047. Your riverfront progress is saved."
+        } else {
+            "Ganga ke kinare ek nayi subah…"
+        }
+        saveStatus = if (restoredSave == null) "NEW SAVE" else "READY"
+
         // First render the complete land, roads and river so the player sees the world immediately.
         sceneNodes += PlaneNode(engine, size = Size(x = 1000f, y = 0f, z = 1000f), normal = Direction(y = 1f), materialInstance = grass)
         // Blue sky enclosure replaces the black void around the mobile 3D scene.
@@ -374,7 +441,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         val npc = npcNode ?: return@LaunchedEffect
         if (!worldReady) return@LaunchedEffect
         var previous = 0L
-        var px = -18f
+        var saveAccumulator = 0f
+        var px = input.playerX
         var pz = 18f
         var segment = 0
         var pause = 0f
@@ -404,6 +472,11 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             withFrameNanos { now ->
                 val dt = if (previous == 0L) 0.016f else ((now - previous) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
                 previous = now
+                saveAccumulator += dt
+                if (saveAccumulator >= 5f) {
+                    saveAccumulator = 0f
+                    persistGameState()
+                }
 
                 val vehicle = vehicleNode
                 if (input.driving && vehicle != null) {
@@ -649,6 +722,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 Text(if (loading) loadMessage else "AARAV  •  MEERA  •  BANK STAFF  •  MARKET FARMER", color = Color.White, fontSize = 9.sp)
                 Text(if (input.driving) "DRIVING  •  ${(input.carSpeed * 3.6f).toInt()} km/h" else "ON FOOT  •  360° CAMERA", color = Color(0xFFB4C5C3), fontSize = 9.sp)
                 Text("Drag right side to orbit / tilt", color = Color(0xFFB4C5C3), fontSize = 9.sp)
+                Text("SAVE • $saveStatus", color = Color(0xFFB4C5C3), fontSize = 9.sp)
             }
         }
 
@@ -694,6 +768,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         input.yaw = input.carYaw
                                                  dialogue = "Aarav: Seat belt laga li. ▲ accelerate, ▼ reverse/brake, left/right steer."
                     }
+                    persistGameState()
                 },
                 enabled = if (input.driving) true else nearCar && vehicleNode != null,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF66B5A7), contentColor = Color(0xFF142220)),
@@ -706,6 +781,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                             hasMet = true
                             dialogue = "Meera: Aarav, ghat par thodi der rukte hain. Aaj Ganga aarti dekhni hai!  •  Aarav: Haan, phir ghar lautenge."
                             objective = "Story 01 complete: Meet Meera. Explore Golghar next."
+                            persistGameState()
                         }
                         nearHome -> {
                             dialogue = "Meera: Yeh hamara ghar hai. Chalo, riverfront tak paidal chalte hain."

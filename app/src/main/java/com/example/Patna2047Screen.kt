@@ -198,6 +198,19 @@ internal fun uniformScaleForCharacterHeight(unscaledHeightMeters: Float, targetH
         targetHeightMeters.isFinite() && targetHeightMeters > 0f
     ) targetHeightMeters / unscaledHeightMeters else 1f
 
+/** Turns toward a heading along the shortest arc, with a frame-rate independent angular limit. */
+internal fun approachYawDegrees(currentDegrees: Float, targetDegrees: Float, maxDegreesPerStep: Float): Float {
+    if (!currentDegrees.isFinite() || !targetDegrees.isFinite()) return 0f
+
+    fun wrap(degrees: Float): Float = ((degrees % 360f) + 360f) % 360f
+
+    val current = wrap(currentDegrees)
+    val target = wrap(targetDegrees)
+    val shortestDelta = ((target - current + 540f) % 360f) - 180f
+    val maxStep = if (maxDegreesPerStep.isFinite()) maxDegreesPerStep.coerceAtLeast(0f) else 0f
+    return wrap(current + shortestDelta.coerceIn(-maxStep, maxStep))
+}
+
 private val BANK_EMPLOYEE_WAYPOINTS = listOf(
     ActorWaypoint(34f, 18f, 2.0f),
     ActorWaypoint(48f, 18f, 0.8f),
@@ -621,7 +634,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         if (!hitsWorld(px, nextZ, 0.45f) && clearOfPeopleAndTraffic(px, nextZ) &&
                             sqrt((px - input.carX) * (px - input.carX) + (nextZ - input.carZ) * (nextZ - input.carZ)) > 3.0f
                         ) pz = nextZ
-                        playerYawDegrees = kotlin.math.atan2(-worldX, -worldZ) * 180f / PI.toFloat() + 180f
+                        val targetPlayerYaw = kotlin.math.atan2(-worldX, -worldZ) * 180f / PI.toFloat() + 180f
+                        playerYawDegrees = approachYawDegrees(playerYawDegrees, targetPlayerYaw, 540f * dt)
                         player.rotation = Rotation(y = playerYawDegrees)
                     }
                     input.playerX = px
@@ -660,7 +674,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     val step = (1.3f * dt).coerceAtMost(distance)
                     npcX += nx / distance * step
                     npcZ += nz / distance * step
-                    npcYawDegrees = kotlin.math.atan2(nx, nz) * 180f / PI.toFloat() + 180f
+                    val targetNpcYaw = kotlin.math.atan2(nx, nz) * 180f / PI.toFloat() + 180f
+                    npcYawDegrees = approachYawDegrees(npcYawDegrees, targetNpcYaw, 360f * dt)
                 }
                 npc.rotation = Rotation(y = npcYawDegrees)
                 npc.position = npcGrounding.rootPosition(npcX, CHARACTER_GROUND_Y, npcZ, npcYawDegrees)
@@ -726,7 +741,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         val step = (1.25f * dt).coerceAtMost(workerDistance)
                         routine.x += wx / workerDistance * step
                         routine.z += wz / workerDistance * step
-                        routine.yawDegrees = kotlin.math.atan2(wx, wz) * 180f / PI.toFloat() + 180f
+                        val targetWorkerYaw = kotlin.math.atan2(wx, wz) * 180f / PI.toFloat() + 180f
+                        routine.yawDegrees = approachYawDegrees(routine.yawDegrees, targetWorkerYaw, 360f * dt)
                     }
                     worker.rotation = Rotation(y = routine.yawDegrees)
                     worker.position = routine.grounding.rootPosition(

@@ -32,4 +32,32 @@ class CharacterScaleTest {
         assertEquals(1.64f, nativeHeight * womanScale, 0.0001f)
         assertEquals(0.08f, (nativeHeight * manScale) - (nativeHeight * womanScale), 0.0001f)
     }
+
+    @Test
+    fun keepsOffCenterCharacterFeetAtGroundAnchorAcrossYawChanges() {
+        val grounding = characterGroundingFromBounds(
+            centerX = 0.32f,
+            centerY = 1.1f,
+            centerZ = -0.24f,
+            halfExtentY = 0.92f,
+            scaleX = 0.5f,
+            scaleY = 0.5f,
+            scaleZ = 0.5f
+        )
+
+        for (yawDegrees in listOf(0f, 90f, 180f, -90f, 37f)) {
+            val yawRadians = yawDegrees * kotlin.math.PI.toFloat() / 180f
+            val c = kotlin.math.cos(yawRadians)
+            val sn = kotlin.math.sin(yawRadians)
+            val root = grounding.rootPosition(12f, 0.12f, -7f, yawDegrees)
+
+            val reconstructedBottomX = root.x + c * grounding.localBottomX + sn * grounding.localBottomZ
+            val reconstructedBottomY = root.y + grounding.localBottomY
+            val reconstructedBottomZ = root.z - sn * grounding.localBottomX + c * grounding.localBottomZ
+
+            assertEquals("feet X at yaw $yawDegrees", 12f, reconstructedBottomX, 0.0001f)
+            assertEquals("feet Y at yaw $yawDegrees", 0.12f, reconstructedBottomY, 0.0001f)
+            assertEquals("feet Z at yaw $yawDegrees", -7f, reconstructedBottomZ, 0.0001f)
+        }
+    }
 }

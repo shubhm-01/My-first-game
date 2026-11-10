@@ -127,10 +127,65 @@ private class PatnaInput {
 }
 
 private data class ActorWaypoint(val x: Float, val z: Float, val pause: Float = 0f)
+private const val CHARACTER_GROUND_Y = 0.12f
+
+/**
+ * Stores the model-space bottom-center anchor after the node's own scale is applied.
+ * The offset is re-rotated on every movement update so off-center GLB pivots do not
+ * make a character snap vertically or drift sideways as it turns.
+ */
+internal data class CharacterGrounding(
+    val localBottomX: Float,
+    val localBottomY: Float,
+    val localBottomZ: Float
+) {
+    fun rootPosition(anchorX: Float, groundY: Float, anchorZ: Float, yawDegrees: Float): Position {
+        val safeYaw = if (yawDegrees.isFinite()) yawDegrees else 0f
+        val yawRadians = safeYaw * PI.toFloat() / 180f
+        val c = cos(yawRadians)
+        val sn = sin(yawRadians)
+        val bottomWorldX = c * localBottomX + sn * localBottomZ
+        val bottomWorldZ = -sn * localBottomX + c * localBottomZ
+        return Position(
+            x = anchorX - bottomWorldX,
+            y = groundY - localBottomY,
+            z = anchorZ - bottomWorldZ
+        )
+    }
+}
+
+internal fun characterGroundingFromBounds(
+    centerX: Float,
+    centerY: Float,
+    centerZ: Float,
+    halfExtentY: Float,
+    scaleX: Float,
+    scaleY: Float,
+    scaleZ: Float
+): CharacterGrounding = CharacterGrounding(
+    localBottomX = centerX * scaleX,
+    localBottomY = (centerY - halfExtentY) * scaleY,
+    localBottomZ = centerZ * scaleZ
+)
+
+private fun ModelNode.characterGrounding(): CharacterGrounding = characterGroundingFromBounds(
+    centerX = center.x,
+    centerY = center.y,
+    centerZ = center.z,
+    halfExtentY = halfExtent.y,
+    scaleX = scale.x,
+    scaleY = scale.y,
+    scaleZ = scale.z
+)
+
 private data class PedestrianRoutine(
     val node: ModelNode,
     val waypoints: List<ActorWaypoint>,
-    val walkAnimationSpeed: Float
+    val walkAnimationSpeed: Float,
+    val grounding: CharacterGrounding,
+    var x: Float,
+    var z: Float,
+    var yawDegrees: Float
 )
 
 /**
@@ -332,24 +387,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                             }
                         }
                         node.rotation = Rotation(y = yaw)
-                        // SceneView 2.2.1's centerOrigin(0,-1,0) uses an older offset rule.
-                        // Compute the rotated AABB bottom point directly so every GLB sits on the ground.
-                        val sx = node.scale.x
-                        val sy = node.scale.y
-                        val sz = node.scale.z
-                        val yawRad = yaw * PI.toFloat() / 180f
-                        val c = cos(yawRad)
-                        val sn = sin(yawRad)
-                        val bottomLocalX = node.center.x * sx
-                        val bottomLocalY = (node.center.y - node.halfExtent.y) * sy
-                        val bottomLocalZ = node.center.z * sz
-                        val bottomWorldX = c * bottomLocalX + sn * bottomLocalZ
-                        val bottomWorldZ = -sn * bottomLocalX + c * bottomLocalZ
-                        node.position = Position(
-                            x = at.x - bottomWorldX,
-                            y = at.y - bottomLocalY,
-                            z = at.z - bottomWorldZ
-                        )
+                        // Anchor the full transformed AABB bottom-center at the requested world point.
+                        node.position = node.characterGrounding().rootPosition(at.x, at.y, at.z, yaw)
                         if (walk && node.animationCount > 0) node.playAnimation(0, 0.95f, true)
                         sceneNodes += node
                     }
@@ -369,8 +408,12 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         val businessman = addModel(BUSINESSMAN_GLB, 1f, Position(x = 34f, y = 0.12f, z = 18f), yaw = 180f, walk = true, targetHeightMeters = 1.76f)
         val farmer = addModel(FARMER_GLB, 1f, Position(x = 15f, y = 0.12f, z = -20f), yaw = 90f, walk = true, targetHeightMeters = 1.68f)
         pedestrianRoutines = listOfNotNull(
-            businessman?.let { PedestrianRoutine(it, BANK_EMPLOYEE_WAYPOINTS, 0.90f) },
-            farmer?.let { PedestrianRoutine(it, MARKET_FARMER_WAYPOINTS, 0.82f) }
+            businessman?.let {
+                PedestrianRoutine(it, BANK_EMPLOYEE_WAYPOINTS, 0.90f, it.characterGrounding(), 34f, 18f, 180f)
+            },
+            farmer?.let {
+                PedestrianRoutine(it, MARKET_FARMER_WAYPOINTS, 0.82f, it.characterGrounding(), 15f, -20f, 90f)
+            }
         )
         pedestrianNodes = pedestrianRoutines.map { it.node }
         vehicleNode = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 0f)
@@ -443,6 +486,13 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         val player = playerNode ?: return@LaunchedEffect
         val npc = npcNode ?: return@LaunchedEffect
         if (!worldReady) return@LaunchedEffect
+        val playerGrounding = player.characterGrounding()
+        val npcGrounding = npc.characterGrounding()
+        var playerYawDegrees = 180f
+        // These are world-space foot anchors; ModelNode.position is the transformed GLB pivot.
+        var npcX = -14f
+        var npcZ = 34f
+        var npcYawDegrees = 180f
         var previous = 0L
         var saveAccumulator = 0f
         var px = input.playerX
@@ -500,8 +550,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     val trafficHit = trafficNodes.any { other ->
                         sqrt((nextCarX - other.position.x) * (nextCarX - other.position.x) + (nextCarZ - other.position.z) * (nextCarZ - other.position.z)) < 4.8f
                     }
-                    val pedestrianHit = (listOfNotNull(npc) + pedestrianNodes).any { person ->
-                        sqrt((nextCarX - person.position.x) * (nextCarX - person.position.x) + (nextCarZ - person.position.z) * (nextCarZ - person.position.z)) < 2.8f
+                    val pedestrianHit = (listOf(npcX to npcZ) + pedestrianRoutines.map { it.x to it.z }).any { (personX, personZ) ->
+                        sqrt((nextCarX - personX) * (nextCarX - personX) + (nextCarZ - personZ) * (nextCarZ - personZ)) < 2.8f
                     }
                     if (hitsWorld(nextCarX, nextCarZ, 2.5f) || trafficHit || pedestrianHit) {
                         input.carSpeed = 0f
@@ -543,8 +593,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         val nextZ = pz + worldZ * 1.55f * dt / length
                         // Axis-separated response: walls, parked cars, pedestrians and traffic have body.
                         fun clearOfPeopleAndTraffic(x: Float, z: Float): Boolean {
-                            val peopleClear = (listOfNotNull(npc) + pedestrianNodes).all { person ->
-                                sqrt((x - person.position.x) * (x - person.position.x) + (z - person.position.z) * (z - person.position.z)) > 1.15f
+                            val peopleClear = (listOf(npcX to npcZ) + pedestrianRoutines.map { it.x to it.z }).all { (personX, personZ) ->
+                                sqrt((x - personX) * (x - personX) + (z - personZ) * (z - personZ)) > 1.15f
                             }
                             val trafficClear = trafficNodes.all { car ->
                                 sqrt((x - car.position.x) * (x - car.position.x) + (z - car.position.z) * (z - car.position.z)) > 4.0f
@@ -557,12 +607,13 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         if (!hitsWorld(px, nextZ, 0.45f) && clearOfPeopleAndTraffic(px, nextZ) &&
                             sqrt((px - input.carX) * (px - input.carX) + (nextZ - input.carZ) * (nextZ - input.carZ)) > 3.0f
                         ) pz = nextZ
-                        val facingYaw = kotlin.math.atan2(-worldX, -worldZ)
-                        player.rotation = Rotation(y = facingYaw * 180f / PI.toFloat() + 180f)
+                        playerYawDegrees = kotlin.math.atan2(-worldX, -worldZ) * 180f / PI.toFloat() + 180f
+                        player.rotation = Rotation(y = playerYawDegrees)
                     }
                     input.playerX = px
                     input.playerZ = pz
-                    player.position = Position(x = px, y = 0.12f, z = pz)
+                    player.rotation = Rotation(y = playerYawDegrees)
+                    player.position = playerGrounding.rootPosition(px, CHARACTER_GROUND_Y, pz, playerYawDegrees)
                 }
 
                 // Independent orbit camera: full 360° yaw and adjustable elevation.
@@ -577,8 +628,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 cameraNode.lookAt(Position(x = followX, y = input.cameraLookHeight, z = followZ))
 
                 val target = npcRoute[segment]
-                val nx = target.x - npc.position.x
-                val nz = target.z - npc.position.z
+                val nx = target.x - npcX
+                val nz = target.z - npcZ
                 val distance = sqrt(nx * nx + nz * nz)
                 val npcWalking = distance >= 0.65f
                 if (lastNpcWalking != npcWalking) {
@@ -593,13 +644,12 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     }
                 } else {
                     val step = (1.3f * dt).coerceAtMost(distance)
-                    npc.position = Position(
-                        x = npc.position.x + nx / distance * step,
-                        y = 0.12f,
-                        z = npc.position.z + nz / distance * step
-                    )
-                    npc.rotation = Rotation(y = kotlin.math.atan2(nx, nz) * 180f / PI.toFloat() + 180f)
+                    npcX += nx / distance * step
+                    npcZ += nz / distance * step
+                    npcYawDegrees = kotlin.math.atan2(nx, nz) * 180f / PI.toFloat() + 180f
                 }
+                npc.rotation = Rotation(y = npcYawDegrees)
+                npc.position = npcGrounding.rootPosition(npcX, CHARACTER_GROUND_Y, npcZ, npcYawDegrees)
 
                 // Autonomous cars cruise long avenue loops with a fixed lane and speed.
                 trafficNodes.getOrNull(0)?.let { traffic ->
@@ -620,8 +670,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 }
 
                 val nowNear = sqrt(
-                    (px - npc.position.x) * (px - npc.position.x) +
-                        (pz - npc.position.z) * (pz - npc.position.z)
+                    (px - npcX) * (px - npcX) +
+                        (pz - npcZ) * (pz - npcZ)
                 ) < 4.3f
                 if (nowNear != lastNear) {
                     lastNear = nowNear
@@ -640,8 +690,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     val worker = routine.node
                     val route = routine.waypoints
                     val targetWorker = route[workerSegments[index]]
-                    val wx = targetWorker.x - worker.position.x
-                    val wz = targetWorker.z - worker.position.z
+                    val wx = targetWorker.x - routine.x
+                    val wz = targetWorker.z - routine.z
                     val workerDistance = sqrt(wx * wx + wz * wz)
                     if (workerDistance < 0.5f) {
                         // Stop the walk cycle at a work/rest stop instead of walking in place.
@@ -660,9 +710,17 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                             workerLastWalking[index] = true
                         }
                         val step = (1.25f * dt).coerceAtMost(workerDistance)
-                        worker.position = Position(x = worker.position.x + wx / workerDistance * step, y = 0.12f, z = worker.position.z + wz / workerDistance * step)
-                        worker.rotation = Rotation(y = kotlin.math.atan2(wx, wz) * 180f / PI.toFloat() + 180f)
+                        routine.x += wx / workerDistance * step
+                        routine.z += wz / workerDistance * step
+                        routine.yawDegrees = kotlin.math.atan2(wx, wz) * 180f / PI.toFloat() + 180f
                     }
+                    worker.rotation = Rotation(y = routine.yawDegrees)
+                    worker.position = routine.grounding.rootPosition(
+                        routine.x,
+                        CHARACTER_GROUND_Y,
+                        routine.z,
+                        routine.yawDegrees
+                    )
                 }
                 if (golgharNearby != lastNearGolghar) {
                     lastNearGolghar = golgharNearby

@@ -19,6 +19,22 @@ This branch uses original game code plus remote GLB models from Grab3D. The sour
 | University Building (clock-tower landmark) | https://grab3d.com/models/buildings/university-building/ | https://grab3d.com/dl/university-building/university-building.glb |
 | Power Plant (industrial skyline) | https://grab3d.com/models/buildings/power-plant/ | https://grab3d.com/dl/power-plant/power-plant.glb |
 
+## Human model dimensions and mobile budget (verified 2026-11-10)
+
+The four exact Grab3D source pages publish these upright dimensions and rigged GLB sizes. The configured target stature is intentionally a little below the source height for adult variation; the scale factor shown is `target height ÷ published source height`.
+
+| Actor / source asset | Publisher dimensions (W × D × H) | Rigged GLB size | Target stature | Approx. uniform scale |
+|---|---:|---:|---:|---:|
+| Aarav — Casual Man | 1.15 × 0.36 × 1.80 m | 12 MB | 1.72 m | 0.956 |
+| Meera — Casual Woman | 0.91 × 0.37 × 1.70 m | 12 MB | 1.64 m | 0.965 |
+| Bank employee — Businessman | 1.06 × 0.35 × 1.80 m | 12 MB | 1.76 m | 0.978 |
+| Market farmer — Farmer | 1.22 × 0.48 × 1.90 m | 13 MB | 1.68 m | 0.884 |
+
+Source pages: [Casual Man](https://grab3d.com/models/characters/man/), [Casual Woman](https://grab3d.com/models/characters/woman/), [Businessman](https://grab3d.com/models/characters/businessman/), [Farmer](https://grab3d.com/models/characters/farmer/). Grab3D's [licence statement](https://grab3d.com/license/) dedicates its models under CC0 1.0 for commercial use without attribution. The pages identify separate rigged Walk/Run versions.
+
+These are publisher-listed source dimensions, not a claim that every animated pose has the same bounds. Debug builds now emit `Patna2047Scale` log entries for each loaded actor: native vertical AABB, applied scale, post-scale static world-Y range, root yaw and animation count. The static AABB does not include deformed skeletal-animation extremes; those still require runtime capture or real-device visual inspection.
+
+The four rigged characters total approximately **49 MB** before other city assets. This is a meaningful mobile first-load/network budget risk. Keep the current remote-first behavior documented until a separately tested, licence-compatible local/cache and texture-LOD pipeline is ready; do not replace rigged models with static low-resolution files that would remove walking animation.
 The Mixed-use High-rise is an original Innerscene model with a stated 56.2 × 42.3 m footprint and 134.6 m overall height; the publisher identifies it as CC0 and the downloaded GLB is about 23.1 MB. Its download API is used as a remote HTTPS GLB URL.
 
 The additional Grab3D bank, university and power-plant models are lightweight PBR GLBs, each listed by the publisher as CC0 1.0. They broaden the skyline, but their art direction is stylized rather than photorealistic.

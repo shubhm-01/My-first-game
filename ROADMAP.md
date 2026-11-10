@@ -15,7 +15,7 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 ## In progress
 
 1. **Human proportions and NPC routines** — PR #2 measures each loaded character's vertical bounds for scaling, separates bank/market routes, and keeps the full off-center model bottom anchor aligned as characters move and turn. JVM tests now cover rotated foot-anchor reconstruction. Still needs real-device or emulator visual verification, especially visible stature beside the SUV/buildings and animated skeleton bounds.
-2. **Save/resume foundation** — implemented on PR #2 with Preferences DataStore: player/vehicle location, camera orientation, driving mode and the first story flag are saved locally on a five-second cadence, app stop, vehicle transitions and mission completion. CI and device relaunch verification are pending; this is not cloud sync or a multi-slot system.
+2. **Save/resume foundation** — implemented on PR #2 with Preferences DataStore: player/vehicle location, camera orientation, driving mode and the first story flag are saved locally on a five-second cadence, app stop, vehicle transitions and mission completion. Unit tests and Debug APK build passed on Actions run #46; real-device process-death/relaunch verification is still pending. This is not cloud sync or a multi-slot system.
 
 ## Prioritized next milestones
 

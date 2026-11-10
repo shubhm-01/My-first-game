@@ -1,5 +1,6 @@
 package com.example
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -388,7 +389,20 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         }
                         node.rotation = Rotation(y = yaw)
                         // Anchor the full transformed AABB bottom-center at the requested world point.
-                        node.position = node.characterGrounding().rootPosition(at.x, at.y, at.z, yaw)
+                        val grounding = node.characterGrounding()
+                        node.position = grounding.rootPosition(at.x, at.y, at.z, yaw)
+                        if (targetHeightMeters != null && BuildConfig.DEBUG) {
+                            val staticHeightMeters = node.halfExtent.y * 2f * node.scale.y
+                            val staticBottomY = node.position.y + grounding.localBottomY
+                            val staticTopY = node.position.y + (node.center.y + node.halfExtent.y) * node.scale.y
+                            Log.d(
+                                "Patna2047Scale",
+                                "asset=" + url.substringAfterLast('/') + " nativeY=" + (node.halfExtent.y * 2f) + "m " +
+                                    "scaleY=" + node.scale.y + " targetY=" + targetHeightMeters + "m " +
+                                    "staticAabbHeight=" + staticHeightMeters + "m worldY=[" + staticBottomY + "," + staticTopY + "]m " +
+                                    "yaw=" + yaw + " animations=" + node.animationCount + "; animated skeleton extremes are not included"
+                            )
+                        }
                         if (walk && node.animationCount > 0) node.playAnimation(0, 0.95f, true)
                         sceneNodes += node
                     }

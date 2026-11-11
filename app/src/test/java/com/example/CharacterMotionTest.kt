@@ -29,4 +29,32 @@ class CharacterMotionTest {
         assertEquals(0f, approachYawDegrees(0f, 90f, Float.POSITIVE_INFINITY), 0f)
         assertEquals(0f, approachYawDegrees(0f, 90f, Float.NaN), 0f)
     }
+
+    @Test
+    fun onFootAccelerationIsBoundedByTheFrameDelta() {
+        val velocity = approachPlanarVelocity(0f, 0f, 1.55f, 0f, 0.08f)
+        assertEquals(0.08f, velocity.x, 0.0001f)
+        assertEquals(0f, velocity.z, 0.0001f)
+    }
+
+    @Test
+    fun onFootBrakingApproachesZeroWithoutOvershooting() {
+        val velocity = approachPlanarVelocity(1.2f, -0.4f, 0f, 0f, 0.25f)
+        assertEquals(0.2f, velocity.x, 0.0001f)
+        assertEquals(-0.0666667f, velocity.z, 0.0001f)
+    }
+
+    @Test
+    fun directionChangesDecelerateBeforeReversing() {
+        val velocity = approachPlanarVelocity(1f, 0f, -1f, 0f, 0.3f)
+        assertEquals(0.7f, velocity.x, 0.0001f)
+    }
+
+    @Test
+    fun invalidVelocityInputsAreSanitized() {
+        val velocity = approachPlanarVelocity(Float.NaN, 1f, Float.POSITIVE_INFINITY, 0f, Float.NaN)
+        assertEquals(0f, velocity.x, 0f)
+        assertEquals(1f, velocity.z, 0f)
+        assertTrue(velocity.x.isFinite() && velocity.z.isFinite())
+    }
 }

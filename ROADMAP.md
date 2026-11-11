@@ -1,6 +1,6 @@
 # Patna 2047 — living development roadmap
 
-Last updated: 2026-11-10
+Last updated: 2026-11-11
 
 Patna 2047 is being developed as a mobile-first, third-person Indian city exploration and driving game. Work is delivered in small reviewable layers; this roadmap is intentionally maintained as the prototype grows.
 
@@ -10,12 +10,13 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 - On-foot movement, 360-degree camera orbit/pitch, SUV driving and enter/exit interaction. Player and pedestrian facing now ease along the shortest yaw arc instead of snapping at route corners.
 - Four distinct rigged human GLBs (Aarav, Meera, bank employee and market farmer), plus two worker routes and two moving traffic vehicles.
 - Character scale is calculated from each loaded model's vertical AABB against adult stature targets. The full transformed AABB foot anchor (X/Y/Z) is now preserved and re-rotated during player, Meera and worker movement. Debug builds emit `Patna2047Scale` records with native height, scale and static world-Y bounds; publisher pages list source heights of 1.80 m, 1.70 m, 1.80 m and 1.90 m respectively. Actual device-side visible-height and animated-skeleton verification is still pending.
-- CI builds a Debug APK and runs JVM unit tests on pull requests.
+- CI builds a Debug APK and runs JVM unit tests on pull requests. Aarav/Meera are the hard gate for on-foot play; the SUV is attempted before controls go live, and a missing SUV degrades safely to walking. Non-essential city models then stream in with visible progress.
 
 ## In progress
 
 1. **Human proportions and NPC routines** — PR #2 measures each loaded character's vertical bounds for scaling, separates bank/market routes, and keeps the full off-center model bottom anchor aligned as characters move and turn. JVM tests now cover rotated foot-anchor reconstruction. Still needs real-device or emulator visual verification, especially visible stature beside the SUV/buildings and animated skeleton bounds.
 2. **Save/resume foundation** — implemented on PR #2 with Preferences DataStore: player/vehicle location, camera orientation, driving mode and the first story flag are saved locally on a five-second cadence, app stop, vehicle transitions and mission completion. Unit tests and Debug APK build passed on Actions run #46; real-device process-death/relaunch verification is still pending. This is not cloud sync or a multi-slot system.
+3. **Progressive world-asset loading** — the two required on-foot actors and player SUV are attempted first; the 17 non-essential houses, worker models, parked/traffic vehicles, civic buildings, street furniture and 23 MB high-rise load afterward. The frame loop observes newly streamed vehicles/workers without restarting or resetting Meera's route. Device/network time-to-play and memory still need profiling.
 
 ## Prioritized next milestones
 

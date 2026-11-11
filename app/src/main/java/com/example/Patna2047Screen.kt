@@ -283,7 +283,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var saveStatus by remember { mutableStateOf("LOADING") }
     var playerVehicleLoading by remember { mutableStateOf(true) }
     fun persistGameState() {
-        if (!saveReady || playerVehicleLoading) return
+        if (!saveReady || !worldReady || playerVehicleLoading) return
         saveScope.launch {
             saveStatus = if (context.savePatna2047Save(input.snapshot(hasMet))) "SAVED" else "SAVE ERROR"
         }

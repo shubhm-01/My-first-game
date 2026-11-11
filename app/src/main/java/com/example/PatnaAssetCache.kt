@@ -15,8 +15,8 @@ import java.security.MessageDigest
 /**
  * Small bounded disk cache for remote GLB assets.
  *
- * The two core on-foot characters are pinned in a separate cache folder so later launches can
- * still start on foot when the device is offline. Optional city assets use a bounded LRU folder.
+ * The two core on-foot characters live in a separate folder that the optional-asset LRU never
+ * evicts. Android may still clear cacheDir, so a cold offline install is not guaranteed to work.
  * Cache files are written to a temporary path and accepted only after their GLB v2 header and
  * first JSON chunk header have been validated.
  */

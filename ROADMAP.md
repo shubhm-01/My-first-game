@@ -31,7 +31,7 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 ## Quality gates for every gameplay PR
 
 - Preserve the existing Alchemist source content and keep Patna 2047 changes on a dedicated branch/PR.
-- Run ./gradlew testDebugUnitTest and ./gradlew assembleDebug; verify the APK exists and report its size.
+- Run ./gradlew testDebugUnitTest, ./gradlew lintDebug and ./gradlew assembleDebug; verify the APK exists and report its size.
 - Check collision, touch controls, camera orbit/pitch, human grounding, vehicle enter/exit and loading regressions.
 - Prefer offline-capable, low-size assets with verified permissive licences; document exact source and attribution in ASSET_CREDITS.md.
 - Do not merge, release, deploy or change production settings without explicit approval.

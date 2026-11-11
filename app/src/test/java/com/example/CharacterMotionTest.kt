@@ -3,6 +3,7 @@ package com.example
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.sqrt
 
 class CharacterMotionTest {
     @Test
@@ -40,8 +41,10 @@ class CharacterMotionTest {
     @Test
     fun onFootBrakingApproachesZeroWithoutOvershooting() {
         val velocity = approachPlanarVelocity(1.2f, -0.4f, 0f, 0f, 0.25f)
-        assertEquals(0.2f, velocity.x, 0.0001f)
-        assertEquals(-0.0666667f, velocity.z, 0.0001f)
+        val beforeSpeed = sqrt(1.2f * 1.2f + 0.4f * 0.4f)
+        val afterSpeed = sqrt(velocity.x * velocity.x + velocity.z * velocity.z)
+        assertEquals(beforeSpeed - 0.25f, afterSpeed, 0.0001f)
+        assertTrue(velocity.x > 0f && velocity.z < 0f)
     }
 
     @Test

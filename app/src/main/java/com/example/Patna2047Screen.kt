@@ -214,6 +214,38 @@ internal fun approachYawDegrees(currentDegrees: Float, targetDegrees: Float, max
     return wrap(current + shortestDelta.coerceIn(-maxStep, maxStep))
 }
 
+/** Planar world-space velocity used to ease on-foot starts, stops and direction changes. */
+internal data class PlanarVelocity(val x: Float, val z: Float)
+
+/**
+ * Moves a planar velocity toward its target by at most [maxDelta] metres/second per frame.
+ * This keeps acceleration independent of frame rate and prevents direction changes from snapping.
+ */
+internal fun approachPlanarVelocity(
+    currentX: Float,
+    currentZ: Float,
+    targetX: Float,
+    targetZ: Float,
+    maxDelta: Float
+): PlanarVelocity {
+    val safeCurrentX = currentX.takeIf { it.isFinite() } ?: 0f
+    val safeCurrentZ = currentZ.takeIf { it.isFinite() } ?: 0f
+    val safeTargetX = targetX.takeIf { it.isFinite() } ?: 0f
+    val safeTargetZ = targetZ.takeIf { it.isFinite() } ?: 0f
+    val safeMaxDelta = if (maxDelta.isFinite()) maxDelta.coerceAtLeast(0f) else 0f
+    val deltaX = safeTargetX - safeCurrentX
+    val deltaZ = safeTargetZ - safeCurrentZ
+    val distance = sqrt(deltaX * deltaX + deltaZ * deltaZ)
+    if (distance <= safeMaxDelta || distance <= 0.000001f) {
+        return PlanarVelocity(safeTargetX, safeTargetZ)
+    }
+    val fraction = safeMaxDelta / distance
+    return PlanarVelocity(
+        safeCurrentX + deltaX * fraction,
+        safeCurrentZ + deltaZ * fraction
+    )
+}
+
 private val BANK_EMPLOYEE_WAYPOINTS = listOf(
     ActorWaypoint(34f, 18f, 2.0f),
     ActorWaypoint(48f, 18f, 0.8f),
@@ -596,6 +628,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         val playerGrounding = player.characterGrounding()
         val npcGrounding = npc.characterGrounding()
         var playerYawDegrees = 180f
+        var playerVelocityX = 0f
+        var playerVelocityZ = 0f
         // These are world-space foot anchors; ModelNode.position is the transformed GLB pivot.
         var npcX = -14f
         var npcZ = 34f
@@ -609,7 +643,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         var lastNear = false
         var lastNearHome = false
         var lastNearGolghar = false
-        var lastMoving: Boolean? = null
+        var lastWalkAnimationSpeed = -1f
         var lastNpcWalking: Boolean? = null
         // Cache wheel renderables as streamed vehicle models arrive; do not restart the frame loop.
         var activeVehicleNode = latestVehicleNode.value
@@ -676,6 +710,9 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
 
                 val vehicle = currentVehicle
                 if (input.driving && vehicle != null) {
+                    // The on-foot velocity must not leak into the next exit-from-car movement.
+                    playerVelocityX = 0f
+                    playerVelocityZ = 0f
                     // Mobile driving: throttle, reverse/brake, steering and coasting.
                     input.carSpeed = when {
                         input.forward -> (input.carSpeed + 10.5f * dt).coerceAtMost(24f)
@@ -721,38 +758,61 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     pz = input.playerZ
                     val moveX = (if (input.right) 1f else 0f) - (if (input.left) 1f else 0f)
                     val moveZ = (if (input.forward) 1f else 0f) - (if (input.back) 1f else 0f)
-                    val length = sqrt(moveX * moveX + moveZ * moveZ).coerceAtLeast(1f)
-                    val moving = moveX != 0f || moveZ != 0f
-                    if (lastMoving != moving) {
-                        // Reuse the indexed walk clip actually present in these GLBs.
-                        if (player.animationCount > 0) player.setAnimationSpeed(0, if (moving) 0.95f else 0f)
-                        lastMoving = moving
-                    }
-                    if (moving) {
-                        // Screen-up is forward, screen-left is left, relative to the camera heading.
-                        val worldX = moveX * cos(input.yaw) - moveZ * sin(input.yaw)
-                        val worldZ = -moveX * sin(input.yaw) - moveZ * cos(input.yaw)
-                        val nextX = px + worldX * 1.55f * dt / length
-                        val nextZ = pz + worldZ * 1.55f * dt / length
-                        // Axis-separated response: walls, parked cars, pedestrians and traffic have body.
-                        fun clearOfPeopleAndTraffic(x: Float, z: Float): Boolean {
-                            val peopleClear = (listOf(npcX to npcZ) + currentRoutines.map { it.x to it.z }).all { (personX, personZ) ->
-                                sqrt((x - personX) * (x - personX) + (z - personZ) * (z - personZ)) > 1.15f
-                            }
-                            val trafficClear = currentTrafficNodes.all { car ->
-                                sqrt((x - car.position.x) * (x - car.position.x) + (z - car.position.z) * (z - car.position.z)) > 4.0f
-                            }
-                            return peopleClear && trafficClear
+                    val inputLength = sqrt(moveX * moveX + moveZ * moveZ)
+                    val hasMovementInput = inputLength > 0.001f
+                    // Screen-up is forward, screen-left is left, relative to the camera heading.
+                    val worldX = moveX * cos(input.yaw) - moveZ * sin(input.yaw)
+                    val worldZ = -moveX * sin(input.yaw) - moveZ * cos(input.yaw)
+                    val targetVelocityX = if (hasMovementInput) worldX * 1.55f / inputLength else 0f
+                    val targetVelocityZ = if (hasMovementInput) worldZ * 1.55f / inputLength else 0f
+                    // A short acceleration ramp and slightly stronger braking remove instant starts/stops.
+                    val acceleration = if (hasMovementInput) 4.8f else 6.5f
+                    val velocity = approachPlanarVelocity(
+                        playerVelocityX,
+                        playerVelocityZ,
+                        targetVelocityX,
+                        targetVelocityZ,
+                        acceleration * dt
+                    )
+                    playerVelocityX = velocity.x
+                    playerVelocityZ = velocity.z
+
+                    // Axis-separated collision response keeps sliding along walls and parked objects.
+                    fun clearOfPeopleAndTraffic(x: Float, z: Float): Boolean {
+                        val peopleClear = (listOf(npcX to npcZ) + currentRoutines.map { it.x to it.z }).all { (personX, personZ) ->
+                            sqrt((x - personX) * (x - personX) + (z - personZ) * (z - personZ)) > 1.15f
                         }
+                        val trafficClear = currentTrafficNodes.all { car ->
+                            sqrt((x - car.position.x) * (x - car.position.x) + (z - car.position.z) * (z - car.position.z)) > 4.0f
+                        }
+                        return peopleClear && trafficClear
+                    }
+                    val nextX = px + playerVelocityX * dt
+                    val nextZ = pz + playerVelocityZ * dt
+                    if (kotlin.math.abs(playerVelocityX) > 0.0001f) {
                         if (!hitsWorld(nextX, pz, 0.45f) && clearOfPeopleAndTraffic(nextX, pz) &&
                             sqrt((nextX - input.carX) * (nextX - input.carX) + (pz - input.carZ) * (pz - input.carZ)) > 3.0f
-                        ) px = nextX
+                        ) px = nextX else playerVelocityX = 0f
+                    }
+                    if (kotlin.math.abs(playerVelocityZ) > 0.0001f) {
                         if (!hitsWorld(px, nextZ, 0.45f) && clearOfPeopleAndTraffic(px, nextZ) &&
                             sqrt((px - input.carX) * (px - input.carX) + (nextZ - input.carZ) * (nextZ - input.carZ)) > 3.0f
-                        ) pz = nextZ
-                        val targetPlayerYaw = kotlin.math.atan2(-worldX, -worldZ) * 180f / PI.toFloat() + 180f
+                        ) pz = nextZ else playerVelocityZ = 0f
+                    }
+
+                    val playerSpeed = sqrt(playerVelocityX * playerVelocityX + playerVelocityZ * playerVelocityZ)
+                    val walkAnimationSpeed = if (playerSpeed < 0.05f) 0f else {
+                        0.5f + 0.45f * (playerSpeed / 1.55f).coerceIn(0f, 1f)
+                    }
+                    if (player.animationCount > 0 &&
+                        (lastWalkAnimationSpeed < 0f || kotlin.math.abs(walkAnimationSpeed - lastWalkAnimationSpeed) >= 0.05f)
+                    ) {
+                        player.setAnimationSpeed(0, walkAnimationSpeed)
+                        lastWalkAnimationSpeed = walkAnimationSpeed
+                    }
+                    if (playerSpeed > 0.05f) {
+                        val targetPlayerYaw = kotlin.math.atan2(-playerVelocityX, -playerVelocityZ) * 180f / PI.toFloat() + 180f
                         playerYawDegrees = approachYawDegrees(playerYawDegrees, targetPlayerYaw, 540f * dt)
-                        player.rotation = Rotation(y = playerYawDegrees)
                     }
                     input.playerX = px
                     input.playerZ = pz

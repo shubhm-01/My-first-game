@@ -432,6 +432,17 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             }
         }
 
+        // Ghat benches and riverfront details remain available in the first static world frame.
+        sceneNodes += CubeNode(engine, size = Size(x = 4.1f, y = 0.48f, z = 0.58f), materialInstance = darkStone).apply { position = Position(x = -20f, y = 0.52f, z = -43f) }
+        sceneNodes += CubeNode(engine, size = Size(x = 0.14f, y = 1.15f, z = 0.14f), materialInstance = darkStone).apply { position = Position(x = -21.7f, y = 0.55f, z = -43f) }
+        sceneNodes += CubeNode(engine, size = Size(x = 0.14f, y = 1.15f, z = 0.14f), materialInstance = darkStone).apply { position = Position(x = -18.3f, y = 0.55f, z = -43f) }
+
+        // Warm street lamps are generated locally and do not wait for GLB downloads.
+        for (x in listOf(-8f, 8f, 24f, 42f, 60f, 78f)) {
+            sceneNodes += CylinderNode(engine, radius = 0.08f, height = 5.8f, materialInstance = darkStone).apply { position = Position(x = x, y = 2.9f, z = 10f) }
+            sceneNodes += CubeNode(engine, size = Size(x = 0.8f, y = 0.12f, z = 0.12f), materialInstance = roadPaint).apply { position = Position(x = x + 0.28f, y = 5.68f, z = 10f) }
+        }
+
         // Load the two essential on-foot actors and the player's SUV before enabling controls.
         // Homes, workers, traffic and skyline props stream in after the first playable frame.
         loadMessage = "Loading Aarav, Meera and the SUV…"

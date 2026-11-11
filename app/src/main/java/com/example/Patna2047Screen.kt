@@ -306,6 +306,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var trafficNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
     var backgroundAssetsCompleted by remember { mutableStateOf(0) }
     var backgroundAssetsFailed by remember { mutableStateOf(0) }
+    var playerVehicleUnavailable by remember { mutableStateOf(false) }
     var backgroundAssetsFinished by remember { mutableStateOf(false) }
 
     val grass = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF71835C), roughness = 0.96f) }
@@ -453,6 +454,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         playerNode = boy
         npcNode = girl
         vehicleNode = playerCar
+        playerVehicleUnavailable = playerCar == null
         if (playerCar == null && input.driving) {
             // A missing vehicle must not leave the restored save in a phantom driving state.
             input.playerX = input.carX
@@ -463,6 +465,9 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         if (boy != null && girl != null) {
             dialogue = "Aarav aur Meera ghar se nikal pade. Ganga ghat par aaj mela hai."
             objective = "Walk to the Ganga riverfront. Tap INTERACT near Meera."
+            if (playerVehicleUnavailable) {
+                dialogue = "Aarav and Meera are ready. The SUV is unavailable, so explore on foot."
+            }
             worldReady = true
             loading = false
             loadMessage = "Patna 2047 • Ganga Riverfront"
@@ -892,6 +897,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         loading -> loadMessage
                         !worldReady -> "CHARACTERS UNAVAILABLE • CITY VIEW ONLY"
                         !backgroundAssetsFinished -> "CITY ASSETS • $backgroundAssetsCompleted/$BACKGROUND_CITY_ASSET_COUNT"
+                        playerVehicleUnavailable && backgroundAssetsFailed > 0 -> "ON FOOT • SUV UNAVAILABLE • $backgroundAssetsFailed ASSETS SKIPPED"
+                        playerVehicleUnavailable -> "ON FOOT • SUV UNAVAILABLE"
                         backgroundAssetsFailed > 0 -> "CITY READY • $backgroundAssetsFailed ASSETS SKIPPED"
                         else -> "AARAV  •  MEERA  •  BANK STAFF  •  MARKET FARMER"
                     },

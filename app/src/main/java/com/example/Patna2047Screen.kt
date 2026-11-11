@@ -713,6 +713,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     // The on-foot velocity must not leak into the next exit-from-car movement.
                     playerVelocityX = 0f
                     playerVelocityZ = 0f
+                    lastWalkAnimationSpeed = -1f
                     // Mobile driving: throttle, reverse/brake, steering and coasting.
                     input.carSpeed = when {
                         input.forward -> (input.carSpeed + 10.5f * dt).coerceAtMost(24f)

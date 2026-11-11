@@ -66,6 +66,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 private const val MAN_GLB = "https://grab3d.com/dl/man-rigged/man-rigged.glb"
@@ -280,8 +281,9 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var hasMet by remember { mutableStateOf(false) }
     var saveReady by remember { mutableStateOf(false) }
     var saveStatus by remember { mutableStateOf("LOADING") }
+    var playerVehicleLoading by remember { mutableStateOf(true) }
     fun persistGameState() {
-        if (!saveReady) return
+        if (!saveReady || playerVehicleLoading) return
         saveScope.launch {
             saveStatus = if (context.savePatna2047Save(input.snapshot(hasMet))) "SAVED" else "SAVE ERROR"
         }
@@ -324,7 +326,10 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         // Restore the small offline game save before placing the player and vehicle.
         val restoredSave = context.loadPatna2047Save()
         val safeSave = (restoredSave ?: PatnaSaveState()).sanitized()
+        val resumeDrivingAfterVehicleLoad = safeSave.driving
         input.restore(safeSave)
+        // Keep the first playable frame on foot; restore driving only after the SUV exists.
+        input.driving = false
         hasMet = safeSave.hasMet
         objective = if (safeSave.hasMet) {
             "Story 01 complete. Explore Golghar next."
@@ -388,7 +393,15 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             targetHeightMeters: Float? = null
         ): ModelNode? {
             return try {
-                val instance = modelLoader.loadModelInstance(url)
+                val cachedLocation = PatnaAssetCache.resolve(
+                    context = context,
+                    url = url,
+                    keepOffline = url == MAN_GLB || url == WOMAN_GLB
+                ) ?: run {
+                    loadMessage = "Asset unavailable; continuing with the local Patna world…"
+                    return null
+                }
+                val instance = modelLoader.loadModelInstance(cachedLocation)
                 if (instance == null) {
                     loadMessage = "Some city assets are unavailable. Continuing with the 3D city…"
                     null
@@ -427,6 +440,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         sceneNodes += node
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 loadMessage = "Network asset skipped; the rest of Patna is still playable."
                 null
@@ -449,18 +464,12 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         loadMessage = "Loading Aarav, Meera and the SUV…"
         val boy = addModel(MAN_GLB, 1f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true, targetHeightMeters = 1.72f)
         val girl = addModel(WOMAN_GLB, 1f, Position(x = -14f, y = 0.12f, z = 34f), yaw = 180f, walk = true, targetHeightMeters = 1.64f)
-        val playerCar = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 0f)
 
         playerNode = boy
         npcNode = girl
-        vehicleNode = playerCar
-        playerVehicleUnavailable = playerCar == null
-        if (playerCar == null && input.driving) {
-            // A missing vehicle must not leave the restored save in a phantom driving state.
-            input.playerX = input.carX
-            input.playerZ = input.carZ
-            input.driving = false
-        }
+        vehicleNode = null
+        playerVehicleLoading = true
+        playerVehicleUnavailable = false
 
         if (boy != null && girl != null) {
             dialogue = "Aarav aur Meera ghar se nikal pade. Ganga ghat par aaj mela hai."
@@ -473,6 +482,29 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             loadMessage = "Patna 2047 • Ganga Riverfront"
 
             launch {
+                // Vehicle loading is optional: walking becomes playable before the SUV download.
+                val playerCar = addModel(
+                    SUV_GLB,
+                    4.7f,
+                    Position(x = input.carX, y = 0.12f, z = input.carZ),
+                    yaw = 0f
+                )
+                vehicleNode = playerCar
+                playerVehicleLoading = false
+                playerVehicleUnavailable = playerCar == null
+                if (playerCar != null && resumeDrivingAfterVehicleLoad) {
+                    input.driving = true
+                } else if (playerCar == null && resumeDrivingAfterVehicleLoad) {
+                    // Fall back to the last saved vehicle position without a phantom driving state.
+                    input.playerX = input.carX
+                    input.playerZ = input.carZ
+                    input.driving = false
+                }
+                if (playerCar == null) {
+                    dialogue = "Aarav and Meera are ready. The SUV is unavailable, so explore on foot."
+                }
+                persistGameState()
+
                 suspend fun addBackgroundAsset(
                     url: String,
                     scale: Float,
@@ -532,6 +564,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             // Keep the generated riverfront visible, but never report a playable world without both actors.
             worldReady = false
             loading = false
+            playerVehicleLoading = false
+            playerVehicleUnavailable = true
             loadMessage = "Aarav or Meera could not be downloaded. Connect to the internet and reopen Patna 2047."
             dialogue = "The riverfront is ready, but the character models are unavailable."
             objective = "Reconnect to download the two required character models."
@@ -896,6 +930,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     when {
                         loading -> loadMessage
                         !worldReady -> "CHARACTERS UNAVAILABLE • CITY VIEW ONLY"
+                        playerVehicleLoading -> "ON FOOT • SUV LOADING"
                         !backgroundAssetsFinished -> "CITY ASSETS • $backgroundAssetsCompleted/$BACKGROUND_CITY_ASSET_COUNT"
                         playerVehicleUnavailable && backgroundAssetsFailed > 0 -> "ON FOOT • SUV UNAVAILABLE • $backgroundAssetsFailed ASSETS SKIPPED"
                         playerVehicleUnavailable -> "ON FOOT • SUV UNAVAILABLE"

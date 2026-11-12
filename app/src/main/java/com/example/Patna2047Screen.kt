@@ -767,7 +767,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                             ?.takeIf { it.isFinite() && it > 0.001f }
                             ?: (node.halfExtent.y * 2f)
                         val boundsSource = when {
-                            skinnedRestPoseBounds != null -> "skinned-rest-pose-vertices"
+                            skinnedRestPoseBounds != null -> "skinned-rest-pose-bounds"
                             hierarchyBounds != null -> "transformed-renderable-hierarchy-fallback"
                             else -> "glTF-accessor-fallback"
                         }
@@ -788,8 +788,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                             Log.d(
                                 "Patna2047Scale",
                                 "asset=" + url.substringAfterLast('/') + " boundsSource=" + boundsSource + " " +
-                                    "nativeHierarchyY=" + nativeHeightMeters + "m scaleY=" + node.scale.y + " " +
-                                    "targetY=" + targetHeightMeters + "m staticAabbHeight=" + staticHeightMeters + "m " +
+                                    "nativeMeasuredY=" + nativeHeightMeters + "m scaleY=" + node.scale.y + " " +
+                                    "targetY=" + targetHeightMeters + "m staticMeasuredHeight=" + staticHeightMeters + "m " +
                                     "worldY=[" + staticBottomY + "," + staticTopY + "]m " +
                                     "renderables=" + node.renderableNodes.size + " animations=" + node.animationCount +
                                     "; rest pose includes joint skinning; animated pose extremes still require runtime capture"

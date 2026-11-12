@@ -337,11 +337,11 @@ internal fun pedestrianRouteAvoidsColliders(
             }
 
             // Liang–Barsky segment clipping against the clearance-expanded rectangle.
-            !(clip(-dx, start.x - minX) &&
+            clip(-dx, start.x - minX) &&
                 clip(dx, maxX - start.x) &&
                 clip(-dz, start.z - minZ) &&
                 clip(dz, maxZ - start.z) &&
-                enter <= exit)
+                enter <= exit
         }
     }
 }

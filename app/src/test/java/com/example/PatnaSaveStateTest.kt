@@ -50,9 +50,6 @@ class PatnaSaveStateTest {
 
         assertEquals(PATNA_CAMERA_DEFAULT_LOOK_HEIGHT, safe.cameraLookHeight, 0f)
     }
-}
-
-
     @Test
     fun clampsLegacyFootLevelCameraTargetsUpToTheTorso() {
         val safe = PatnaSaveState(cameraLookHeight = 0.6f).sanitized()
@@ -66,3 +63,4 @@ class PatnaSaveStateTest {
 
         assertEquals(PATNA_CAMERA_MAX_LOOK_HEIGHT, safe.cameraLookHeight, 0f)
     }
+}

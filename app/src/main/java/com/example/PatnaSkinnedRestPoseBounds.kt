@@ -160,7 +160,7 @@ internal object PatnaSkinnedRestPoseBounds {
                     output[element * componentsPerElement + component] = value
                 }
             }
-            output
+            return output
         }
 
         fun extent(index: Int): DoubleArray? {

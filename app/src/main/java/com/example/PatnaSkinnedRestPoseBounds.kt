@@ -7,7 +7,7 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
-import java.util.Base64
+import android.util.Base64
 
 /**
  * Reads rest-pose bounds for skinned GLBs before SceneView 2.2.1 releases glTF source data.
@@ -186,7 +186,7 @@ internal object PatnaSkinnedRestPoseBounds {
         private fun decodeDataUri(uri: String): ByteBuffer? {
             val comma = uri.indexOf(',')
             if (comma < 0 || !uri.substring(0, comma).endsWith(";base64", ignoreCase = true)) return null
-            val decoded = try { Base64.getDecoder().decode(uri.substring(comma + 1)) }
+            val decoded = try { Base64.decode(uri.substring(comma + 1), Base64.DEFAULT) }
             catch (_: IllegalArgumentException) { return null }
             return ByteBuffer.wrap(decoded).order(ByteOrder.LITTLE_ENDIAN)
         }

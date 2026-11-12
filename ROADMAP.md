@@ -28,6 +28,13 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 - Added transformed-eight-corner AABB and camera-save migration regression coverage. This fixes the known source-level framing/bounds logic; device screenshots and deformed skeleton measurements remain pending.
 - Previous workflow migration verification: Actions run #62 passed all unit tests, Android Lint, Debug APK assembly, APK existence verification and artifact upload.
 
+## Latest update — 2026-11-12: skinned GLB rest-pose bounds
+
+- Added a lightweight cached-GLB rest-pose bounds reader for skinned character meshes. It applies each skin's weighted `world(joint) × inverseBindMatrix` transform to POSITION vertices before measuring the model, and supports a conservative joint-transformed accessor-box fallback when influences are unavailable.
+- Character sizing/grounding now prefers this skin-aware rest-pose box, then the transformed renderable hierarchy box, then the original accessor box. The calculation runs on `Dispatchers.Default` before SceneView 2.2.1 releases source data. Non-skinned city assets and their existing cube sizing are unchanged.
+- Added a regression rig matching the upstream centimetre-export pattern: 189-unit mesh vertices under an armature scaled by 0.01 must measure 1.89 m after skinning. Added unreadable-influence fallback and invalid-GLB tests.
+- This handles rest-pose skin transforms, not every animation clip or morph target. Device-side stature, foot-contact and camera-framing screenshots remain mandatory before considering the reported oversized-human issue visually resolved.
+
 ## Prioritized next milestones
 
 1. **Character and camera validation:** inspect the new `Patna2047Scale` debug logs, compare measured static bounds to the SUV and street furniture, then verify screenshots on a real Android device or emulator. The current static AABB does not prove animated-skeleton extremes; capture deformed bounds across the walk cycle before declaring scale verified. Add true idle/work animation clips only after confirming the actual GLB clip names.

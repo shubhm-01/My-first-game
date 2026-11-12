@@ -2,6 +2,7 @@ package com.example
 
 import android.util.Log
 import dev.romainguy.kotlin.math.inverse
+import java.io.File
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -70,7 +71,9 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val MAN_GLB = "https://grab3d.com/dl/man-rigged/man-rigged.glb"
 private const val WOMAN_GLB = "https://grab3d.com/dl/woman-rigged/woman-rigged.glb"
@@ -731,6 +734,15 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     loadMessage = "Asset unavailable; continuing with the local Patna world…"
                     return null
                 }
+                // Parse skinned rest-pose bounds while the cached GLB still contains its source data.
+                // This corrects centimetre-authored vertices under 0.01 armature scale before sizing.
+                val skinnedRestPoseBounds = if (targetHeightMeters != null) {
+                    withContext(Dispatchers.Default) {
+                        PatnaSkinnedRestPoseBounds.read(File(cachedLocation))
+                    }
+                } else {
+                    null
+                }
                 val instance = modelLoader.loadModelInstance(cachedLocation)
                 if (instance == null) {
                     loadMessage = "Some city assets are unavailable. Continuing with the 3D city…"
@@ -743,20 +755,21 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         // start from the asset's native AABB and scale from its measured Y height.
                         scaleToUnits = if (targetHeightMeters == null) scale else null
                     ).also { node ->
-                        // Prefer the union of renderable AABBs after applying every child transform.
-                        // The asset-level ModelNode AABB only reflects glTF accessor bounds.
-                        val hierarchyBounds = if (targetHeightMeters != null) {
+                        // A skinned GLB's rest-pose vertex bounds include joint and inverse-bind
+                        // matrices; static renderable bounds remain the non-skinned/unsupported fallback.
+                        val hierarchyBounds = if (targetHeightMeters != null && skinnedRestPoseBounds == null) {
                             node.characterBoundsInModelSpace()
                         } else {
                             null
                         }
-                        val nativeHeightMeters = hierarchyBounds?.height
+                        val measuredBounds = skinnedRestPoseBounds ?: hierarchyBounds
+                        val nativeHeightMeters = measuredBounds?.height
                             ?.takeIf { it.isFinite() && it > 0.001f }
                             ?: (node.halfExtent.y * 2f)
-                        val boundsSource = if (hierarchyBounds != null) {
-                            "transformed-renderable-hierarchy"
-                        } else {
-                            "glTF-accessor-fallback"
+                        val boundsSource = when {
+                            skinnedRestPoseBounds != null -> "skinned-rest-pose-vertices"
+                            hierarchyBounds != null -> "transformed-renderable-hierarchy-fallback"
+                            else -> "glTF-accessor-fallback"
                         }
                         if (targetHeightMeters != null) {
                             val uniformScale = uniformScaleForCharacterHeight(nativeHeightMeters, targetHeightMeters)
@@ -766,7 +779,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         }
                         node.rotation = Rotation(y = yaw)
                         // Use the same transformed union for the bottom-centre foot anchor.
-                        val grounding = node.characterGrounding(hierarchyBounds)
+                        val grounding = node.characterGrounding(measuredBounds)
                         node.position = grounding.rootPosition(at.x, at.y, at.z, yaw)
                         if (targetHeightMeters != null && BuildConfig.DEBUG) {
                             val staticHeightMeters = nativeHeightMeters * node.scale.y
@@ -779,7 +792,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                                     "targetY=" + targetHeightMeters + "m staticAabbHeight=" + staticHeightMeters + "m " +
                                     "worldY=[" + staticBottomY + "," + staticTopY + "]m " +
                                     "renderables=" + node.renderableNodes.size + " animations=" + node.animationCount +
-                                    "; deformed skeleton bounds still require runtime capture"
+                                    "; rest pose includes joint skinning; animated pose extremes still require runtime capture"
                             )
                         }
                         if (walk && node.animationCount > 0) node.playAnimation(0, 0.95f, true)

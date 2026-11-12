@@ -39,7 +39,7 @@ class PatnaSaveStateTest {
             driving = true
         ).sanitized()
 
-        assertEquals(22f, safe.cameraLookHeight, 0f)
+        assertEquals(PATNA_CAMERA_MAX_LOOK_HEIGHT, safe.cameraLookHeight, 0f)
         assertTrue(safe.hasMet)
         assertTrue(safe.driving)
     }
@@ -48,6 +48,21 @@ class PatnaSaveStateTest {
     fun replacesNonFiniteCameraHeightWithSafeDefault() {
         val safe = PatnaSaveState(cameraLookHeight = Float.NEGATIVE_INFINITY).sanitized()
 
-        assertEquals(2.8f, safe.cameraLookHeight, 0f)
+        assertEquals(PATNA_CAMERA_DEFAULT_LOOK_HEIGHT, safe.cameraLookHeight, 0f)
     }
 }
+
+
+    @Test
+    fun clampsLegacyFootLevelCameraTargetsUpToTheTorso() {
+        val safe = PatnaSaveState(cameraLookHeight = 0.6f).sanitized()
+
+        assertEquals(PATNA_CAMERA_MIN_LOOK_HEIGHT, safe.cameraLookHeight, 0f)
+    }
+
+    @Test
+    fun keepsSavedCameraLookTargetInsideHumanFramingRange() {
+        val safe = PatnaSaveState(cameraLookHeight = 2.8f).sanitized()
+
+        assertEquals(PATNA_CAMERA_MAX_LOOK_HEIGHT, safe.cameraLookHeight, 0f)
+    }

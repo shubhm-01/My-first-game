@@ -11,6 +11,10 @@ import kotlinx.coroutines.flow.first
 import java.io.IOException
 import kotlin.math.PI
 
+internal const val PATNA_CAMERA_DEFAULT_LOOK_HEIGHT = 1.25f
+internal const val PATNA_CAMERA_MIN_LOOK_HEIGHT = 1.0f
+internal const val PATNA_CAMERA_MAX_LOOK_HEIGHT = 2.0f
+
 private val Context.patna2047DataStore by preferencesDataStore(
     name = "patna_2047_save",
     corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
@@ -36,7 +40,7 @@ internal data class PatnaSaveState(
     val carZ: Float = 18f,
     val carYaw: Float = 0f,
     val cameraYaw: Float = 0f,
-    val cameraLookHeight: Float = 2.8f,
+    val cameraLookHeight: Float = PATNA_CAMERA_DEFAULT_LOOK_HEIGHT,
     val hasMet: Boolean = false,
     val driving: Boolean = false
 )
@@ -55,7 +59,7 @@ internal fun PatnaSaveState.sanitized(): PatnaSaveState {
         return ((value % fullTurn) + fullTurn) % fullTurn
     }
 
-    val safeLookHeight = if (cameraLookHeight.isFinite()) cameraLookHeight else 2.8f
+    val safeLookHeight = if (cameraLookHeight.isFinite()) cameraLookHeight else PATNA_CAMERA_DEFAULT_LOOK_HEIGHT
     return copy(
         playerX = coordinate(playerX, -18f),
         playerZ = coordinate(playerZ, 18f),
@@ -63,7 +67,7 @@ internal fun PatnaSaveState.sanitized(): PatnaSaveState {
         carZ = coordinate(carZ, 18f),
         carYaw = angle(carYaw),
         cameraYaw = angle(cameraYaw),
-        cameraLookHeight = safeLookHeight.coerceIn(0.6f, 22f)
+        cameraLookHeight = safeLookHeight.coerceIn(PATNA_CAMERA_MIN_LOOK_HEIGHT, PATNA_CAMERA_MAX_LOOK_HEIGHT)
     )
 }
 
@@ -76,7 +80,7 @@ internal suspend fun Context.loadPatna2047Save(): PatnaSaveState? = try {
         carZ = values[PatnaSaveKeys.CAR_Z] ?: 18f,
         carYaw = values[PatnaSaveKeys.CAR_YAW] ?: 0f,
         cameraYaw = values[PatnaSaveKeys.CAMERA_YAW] ?: 0f,
-        cameraLookHeight = values[PatnaSaveKeys.CAMERA_LOOK_HEIGHT] ?: 2.8f,
+        cameraLookHeight = values[PatnaSaveKeys.CAMERA_LOOK_HEIGHT] ?: PATNA_CAMERA_DEFAULT_LOOK_HEIGHT,
         hasMet = values[PatnaSaveKeys.HAS_MET] ?: false,
         driving = values[PatnaSaveKeys.DRIVING] ?: false
     ).sanitized()

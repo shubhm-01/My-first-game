@@ -1,6 +1,7 @@
 package com.example
 
 import android.util.Log
+import dev.romainguy.kotlin.math.inverse
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -62,6 +63,8 @@ import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
 import io.github.sceneview.math.Scale
 import io.github.sceneview.math.Size
+import io.github.sceneview.math.Transform
+import io.github.sceneview.math.times
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -92,8 +95,8 @@ private class PatnaInput {
     // Camera yaw is deliberately unbounded: a full orbit is allowed.
     var yaw = 0f
     var cameraHeight = 3.9f
-    // Camera target height is the pitch control: swipe up to look towards the horizon/sky.
-    var cameraLookHeight = 2.8f
+    // Aim at an adult's torso by default; vertical drag makes a small framing adjustment.
+    var cameraLookHeight = PATNA_CAMERA_DEFAULT_LOOK_HEIGHT
     var interact = false
     var driving by mutableStateOf(false)
     var playerX = -18f
@@ -172,15 +175,140 @@ internal fun characterGroundingFromBounds(
     localBottomZ = centerZ * scaleZ
 )
 
-private fun ModelNode.characterGrounding(): CharacterGrounding = characterGroundingFromBounds(
-    centerX = center.x,
-    centerY = center.y,
-    centerZ = center.z,
-    halfExtentY = halfExtent.y,
-    scaleX = scale.x,
-    scaleY = scale.y,
-    scaleZ = scale.z
-)
+/**
+ * Union of renderable boxes expressed in the ModelNode root's local space.
+ * Renderable AABBs are object-space culling boxes; every box corner is transformed through
+ * the complete child hierarchy before it contributes to height or foot grounding.
+ */
+internal data class CharacterAabb(
+    val minX: Float,
+    val minY: Float,
+    val minZ: Float,
+    val maxX: Float,
+    val maxY: Float,
+    val maxZ: Float
+) {
+    val height: Float get() = maxY - minY
+    val centerX: Float get() = (minX + maxX) * 0.5f
+    val centerY: Float get() = (minY + maxY) * 0.5f
+    val centerZ: Float get() = (minZ + maxZ) * 0.5f
+    val halfExtentY: Float get() = height * 0.5f
+}
+
+/** Transform all eight corners of one object-space AABB into model-root space. */
+internal fun transformedCharacterAabb(
+    center: Position,
+    halfExtent: Size,
+    localTransform: Transform
+): CharacterAabb? {
+    val source = floatArrayOf(
+        center.x, center.y, center.z,
+        halfExtent.x, halfExtent.y, halfExtent.z
+    )
+    if (source.any { !it.isFinite() } ||
+        halfExtent.x < 0f || halfExtent.y < 0f || halfExtent.z < 0f
+    ) return null
+
+    var minX = Float.POSITIVE_INFINITY
+    var minY = Float.POSITIVE_INFINITY
+    var minZ = Float.POSITIVE_INFINITY
+    var maxX = Float.NEGATIVE_INFINITY
+    var maxY = Float.NEGATIVE_INFINITY
+    var maxZ = Float.NEGATIVE_INFINITY
+
+    for (sx in floatArrayOf(-1f, 1f)) {
+        for (sy in floatArrayOf(-1f, 1f)) {
+            for (sz in floatArrayOf(-1f, 1f)) {
+                val point = localTransform * Position(
+                    center.x + halfExtent.x * sx,
+                    center.y + halfExtent.y * sy,
+                    center.z + halfExtent.z * sz
+                )
+                if (!point.x.isFinite() || !point.y.isFinite() || !point.z.isFinite()) return null
+                minX = minOf(minX, point.x)
+                minY = minOf(minY, point.y)
+                minZ = minOf(minZ, point.z)
+                maxX = maxOf(maxX, point.x)
+                maxY = maxOf(maxY, point.y)
+                maxZ = maxOf(maxZ, point.z)
+            }
+        }
+    }
+    return CharacterAabb(minX, minY, minZ, maxX, maxY, maxZ)
+}
+
+/** Merge already-transformed renderable bounds into one model-root AABB. */
+internal fun unionCharacterAabbs(bounds: List<CharacterAabb>): CharacterAabb? {
+    if (bounds.isEmpty()) return null
+    if (bounds.any { box ->
+            listOf(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ).any { !it.isFinite() } ||
+                box.minX > box.maxX || box.minY > box.maxY || box.minZ > box.maxZ
+        }
+    ) return null
+    return CharacterAabb(
+        minX = bounds.minOf { it.minX },
+        minY = bounds.minOf { it.minY },
+        minZ = bounds.minOf { it.minZ },
+        maxX = bounds.maxOf { it.maxX },
+        maxY = bounds.maxOf { it.maxY },
+        maxZ = bounds.maxOf { it.maxZ }
+    )
+}
+
+/**
+ * ModelNode.boundingBox is the GLB accessor-level box. It can omit child-node transforms.
+ * Instead, transform each Filament renderable's object-space culling AABB through its full
+ * hierarchy, cancel the ModelNode's world transform, and merge in model-root coordinates.
+ */
+private fun ModelNode.characterBoundsInModelSpace(): CharacterAabb? = try {
+    if (renderableNodes.isEmpty()) {
+        null
+    } else {
+        val worldToModel = inverse(worldTransform)
+        val renderableBounds = renderableNodes.mapNotNull { renderable ->
+            val box = renderable.axisAlignedBoundingBox
+            val center = box.center
+            val halfExtent = box.halfExtent
+            if (center.size < 3 || halfExtent.size < 3) {
+                null
+            } else {
+                transformedCharacterAabb(
+                    center = Position(center[0], center[1], center[2]),
+                    halfExtent = Size(halfExtent[0], halfExtent[1], halfExtent[2]),
+                    localTransform = worldToModel * renderable.worldTransform
+                )
+            }
+        }
+        unionCharacterAabbs(renderableBounds)
+            ?.takeIf { it.height.isFinite() && it.height > 0.001f }
+    }
+} catch (_: Exception) {
+    null
+}
+
+private fun ModelNode.characterGrounding(bounds: CharacterAabb? = characterBoundsInModelSpace()): CharacterGrounding =
+    if (bounds != null) {
+        characterGroundingFromBounds(
+            centerX = bounds.centerX,
+            centerY = bounds.centerY,
+            centerZ = bounds.centerZ,
+            halfExtentY = bounds.halfExtentY,
+            scaleX = scale.x,
+            scaleY = scale.y,
+            scaleZ = scale.z
+        )
+    } else {
+        // Last-resort fallback for malformed models with no usable renderable AABBs.
+        characterGroundingFromBounds(
+            centerX = center.x,
+            centerY = center.y,
+            centerZ = center.z,
+            halfExtentY = halfExtent.y,
+            scaleX = scale.x,
+            scaleY = scale.y,
+            scaleZ = scale.z
+        )
+    }
 
 private data class PedestrianRoutine(
     val node: ModelNode,
@@ -468,8 +596,8 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     val modelLoader = rememberModelLoader(engine)
     val materialLoader = rememberMaterialLoader(engine)
     val cameraNode = rememberCameraNode(engine) {
-        position = Position(x = -14f, y = 3.4f, z = 29f)
-        lookAt(Position(x = -14f, y = 1f, z = 22f))
+        position = Position(x = -14f, y = 3.9f, z = 29f)
+        lookAt(Position(x = -14f, y = PATNA_CAMERA_DEFAULT_LOOK_HEIGHT, z = 22f))
         far = 1400f
     }
     val sceneNodes = rememberNodes()
@@ -615,27 +743,43 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         // start from the asset's native AABB and scale from its measured Y height.
                         scaleToUnits = if (targetHeightMeters == null) scale else null
                     ).also { node ->
+                        // Prefer the union of renderable AABBs after applying every child transform.
+                        // The asset-level ModelNode AABB only reflects glTF accessor bounds.
+                        val hierarchyBounds = if (targetHeightMeters != null) {
+                            node.characterBoundsInModelSpace()
+                        } else {
+                            null
+                        }
+                        val nativeHeightMeters = hierarchyBounds?.height
+                            ?.takeIf { it.isFinite() && it > 0.001f }
+                            ?: (node.halfExtent.y * 2f)
+                        val boundsSource = if (hierarchyBounds != null) {
+                            "transformed-renderable-hierarchy"
+                        } else {
+                            "glTF-accessor-fallback"
+                        }
                         if (targetHeightMeters != null) {
-                            val nativeHeightMeters = node.halfExtent.y * 2f
                             val uniformScale = uniformScaleForCharacterHeight(nativeHeightMeters, targetHeightMeters)
                             if (uniformScale.isFinite() && uniformScale > 0f) {
                                 node.scale = Scale(uniformScale)
                             }
                         }
                         node.rotation = Rotation(y = yaw)
-                        // Anchor the full transformed AABB bottom-center at the requested world point.
-                        val grounding = node.characterGrounding()
+                        // Use the same transformed union for the bottom-centre foot anchor.
+                        val grounding = node.characterGrounding(hierarchyBounds)
                         node.position = grounding.rootPosition(at.x, at.y, at.z, yaw)
                         if (targetHeightMeters != null && BuildConfig.DEBUG) {
-                            val staticHeightMeters = node.halfExtent.y * 2f * node.scale.y
+                            val staticHeightMeters = nativeHeightMeters * node.scale.y
                             val staticBottomY = node.position.y + grounding.localBottomY
-                            val staticTopY = node.position.y + (node.center.y + node.halfExtent.y) * node.scale.y
+                            val staticTopY = staticBottomY + staticHeightMeters
                             Log.d(
                                 "Patna2047Scale",
-                                "asset=" + url.substringAfterLast('/') + " nativeY=" + (node.halfExtent.y * 2f) + "m " +
-                                    "scaleY=" + node.scale.y + " targetY=" + targetHeightMeters + "m " +
-                                    "staticAabbHeight=" + staticHeightMeters + "m worldY=[" + staticBottomY + "," + staticTopY + "]m " +
-                                    "yaw=" + yaw + " animations=" + node.animationCount + "; animated skeleton extremes are not included"
+                                "asset=" + url.substringAfterLast('/') + " boundsSource=" + boundsSource + " " +
+                                    "nativeHierarchyY=" + nativeHeightMeters + "m scaleY=" + node.scale.y + " " +
+                                    "targetY=" + targetHeightMeters + "m staticAabbHeight=" + staticHeightMeters + "m " +
+                                    "worldY=[" + staticBottomY + "," + staticTopY + "]m " +
+                                    "renderables=" + node.renderableNodes.size + " animations=" + node.animationCount +
+                                    "; deformed skeleton bounds still require runtime capture"
                             )
                         }
                         if (walk && node.animationCount > 0) node.playAnimation(0, 0.95f, true)
@@ -985,13 +1129,22 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 // Independent orbit camera: full 360° yaw and adjustable elevation.
                 val followX = if (input.driving) input.carX else px
                 val followZ = if (input.driving) input.carZ else pz
-                val followDistance = if (input.driving) 9.5f else 6.0f
+                val followDistance = if (input.driving) 9.5f else 6.7f
                 cameraNode.position = Position(
                     x = followX + sin(input.yaw) * followDistance,
                     y = input.cameraHeight,
                     z = followZ + cos(input.yaw) * followDistance
                 )
-                cameraNode.lookAt(Position(x = followX, y = input.cameraLookHeight, z = followZ))
+                cameraNode.lookAt(
+                    Position(
+                        x = followX,
+                        y = input.cameraLookHeight.coerceIn(
+                            PATNA_CAMERA_MIN_LOOK_HEIGHT,
+                            PATNA_CAMERA_MAX_LOOK_HEIGHT
+                        ),
+                        z = followZ
+                    )
+                )
 
                 val avoidancePlayer = PedestrianBlocker(
                     x = if (input.driving) input.carX else px,
@@ -1171,8 +1324,11 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     detectDragGestures { change, drag ->
                         change.consume()
                         input.yaw += drag.x * 0.008f
-                        // Swipe up raises the look target so the camera can look level/skyward.
-                        input.cameraLookHeight = (input.cameraLookHeight - drag.y * 0.034f).coerceIn(0.6f, 22f)
+                        // Small vertical drags now make subtle torso-to-head framing changes.
+                        input.cameraLookHeight = (input.cameraLookHeight - drag.y * 0.009f).coerceIn(
+                            PATNA_CAMERA_MIN_LOOK_HEIGHT,
+                            PATNA_CAMERA_MAX_LOOK_HEIGHT
+                        )
                     }
                 }
         )

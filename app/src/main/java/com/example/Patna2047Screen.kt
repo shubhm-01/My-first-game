@@ -129,7 +129,7 @@ private class PatnaInput {
     ).sanitized()
 }
 
-private data class ActorWaypoint(val x: Float, val z: Float, val pause: Float = 0f)
+internal data class ActorWaypoint(val x: Float, val z: Float, val pause: Float = 0f)
 private const val CHARACTER_GROUND_Y = 0.12f
 private const val BACKGROUND_CITY_ASSET_COUNT = 17
 
@@ -246,7 +246,7 @@ internal fun approachPlanarVelocity(
     )
 }
 
-private val BANK_EMPLOYEE_WAYPOINTS = listOf(
+internal val BANK_EMPLOYEE_WAYPOINTS = listOf(
     ActorWaypoint(34f, 18f, 2.0f),
     ActorWaypoint(48f, 18f, 0.8f),
     ActorWaypoint(56f, 18f, 7.0f),
@@ -255,7 +255,7 @@ private val BANK_EMPLOYEE_WAYPOINTS = listOf(
     ActorWaypoint(34f, 18f, 5.0f)
 )
 
-private val MARKET_FARMER_WAYPOINTS = listOf(
+internal val MARKET_FARMER_WAYPOINTS = listOf(
     ActorWaypoint(15f, -20f, 1.5f),
     ActorWaypoint(15f, -36f, 0.8f),
     ActorWaypoint(28f, -36f, 0.8f),
@@ -263,9 +263,20 @@ private val MARKET_FARMER_WAYPOINTS = listOf(
     ActorWaypoint(15f, -20f, 4.0f)
 )
 
-private data class WorldCollider(val minX: Float, val maxX: Float, val minZ: Float, val maxZ: Float)
+/** Meera's home → market frontage → Ganga promenade loop, kept clear of static geometry. */
+internal val MEERA_DAILY_ROUTE = listOf(
+    ActorWaypoint(-14f, 34f, 1.2f),
+    ActorWaypoint(-8f, 5f, 0.5f),
+    ActorWaypoint(30f, -18f, 2.5f),
+    ActorWaypoint(32f, -40f, 0.8f),
+    ActorWaypoint(-25f, -45f, 5.0f),
+    ActorWaypoint(-30f, -5f, 0.8f),
+    ActorWaypoint(-17f, 15f, 2.0f)
+)
 
-private val PATNA_COLLIDERS = listOf(
+internal data class WorldCollider(val minX: Float, val maxX: Float, val minZ: Float, val maxZ: Float)
+
+internal val PATNA_COLLIDERS = listOf(
     WorldCollider(-38f, -20f, 16f, 32f),   // riverside home
     WorldCollider(-62f, -42f, -12f, 4f),   // second home
     WorldCollider(51f, 61f, -37f, -19f),   // Golghar
@@ -277,8 +288,63 @@ private val PATNA_COLLIDERS = listOf(
     WorldCollider(19f, 27f, -33f, -23f),   // market stand
     WorldCollider(17f, 23f, 63f, 70f),     // parked traffic 1
     WorldCollider(62f, 70f, -80f, -72f),  // parked traffic 2
-    WorldCollider(-52f, -44f, -92f, -84f) // parked traffic 3
+    WorldCollider(-52f, -44f, -92f, -84f), // parked traffic 3
+    WorldCollider(-22.05f, -17.95f, -43.29f, -42.71f) // Ganga promenade bench
 )
+
+
+/**
+ * Checks a closed pedestrian route against the same static world colliders used by player
+ * movement. Expanded AABBs provide a conservative body-clearance margin.
+ */
+internal fun pedestrianRouteAvoidsColliders(
+    route: List<ActorWaypoint>,
+    colliders: List<WorldCollider>,
+    clearance: Float
+): Boolean {
+    if (route.size < 2 || !clearance.isFinite() || clearance < 0f) return false
+    if (route.any { !it.x.isFinite() || !it.z.isFinite() }) return false
+    if (colliders.any {
+            !it.minX.isFinite() || !it.maxX.isFinite() || !it.minZ.isFinite() || !it.maxZ.isFinite() ||
+                it.minX > it.maxX || it.minZ > it.maxZ
+        }
+    ) return false
+
+    return route.indices.all { index ->
+        val start = route[index]
+        val end = route[(index + 1) % route.size]
+        colliders.none { obstacle ->
+            val minX = obstacle.minX - clearance
+            val maxX = obstacle.maxX + clearance
+            val minZ = obstacle.minZ - clearance
+            val maxZ = obstacle.maxZ + clearance
+            val dx = end.x - start.x
+            val dz = end.z - start.z
+            var enter = 0f
+            var exit = 1f
+
+            fun clip(p: Float, q: Float): Boolean {
+                if (kotlin.math.abs(p) < 0.000001f) return q >= 0f
+                val ratio = q / p
+                if (p < 0f) {
+                    if (ratio > exit) return false
+                    enter = maxOf(enter, ratio)
+                } else {
+                    if (ratio < enter) return false
+                    exit = minOf(exit, ratio)
+                }
+                return true
+            }
+
+            // Liang–Barsky segment clipping against the clearance-expanded rectangle.
+            !(clip(-dx, start.x - minX) &&
+                clip(dx, maxX - start.x) &&
+                clip(-dz, start.z - minZ) &&
+                clip(dz, maxZ - start.z) &&
+                enter <= exit)
+        }
+    }
+}
 
 private fun hitsWorld(x: Float, z: Float, radius: Float): Boolean =
     x - radius < -480f || x + radius > 480f || z - radius < -480f || z + radius > 480f ||
@@ -606,16 +672,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
 
     // Meera follows a home → market → Ganga promenade → home daily routine.
     var nearNpc by remember { mutableStateOf(false) }
-    val npcRoute = remember {
-        listOf(
-            ActorWaypoint(-14f, 34f, 1.2f),
-            ActorWaypoint(-8f, 5f, 0.5f),
-            ActorWaypoint(23f, -28f, 2.5f),
-            ActorWaypoint(-20f, -43f, 5.0f),
-            ActorWaypoint(-30f, -5f, 0.8f),
-            ActorWaypoint(-21f, 20f, 2.0f)
-        )
-    }
+    val npcRoute = remember { MEERA_DAILY_ROUTE }
     // Read streamed assets without restarting the movement loop or resetting Meera's route.
     val latestVehicleNode = rememberUpdatedState(vehicleNode)
     val latestPedestrianRoutines = rememberUpdatedState(pedestrianRoutines)

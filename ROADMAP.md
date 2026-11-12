@@ -1,6 +1,6 @@
 # Patna 2047 — living development roadmap
 
-Last updated: 2026-11-11
+Last updated: 2026-11-12
 
 Patna 2047 is being developed as a mobile-first, third-person Indian city exploration and driving game. Work is delivered in small reviewable layers; this roadmap is intentionally maintained as the prototype grows.
 
@@ -9,12 +9,13 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 - Fictional near-future Patna riverfront with Ganga water, ghats, a bridge/road network and a Golghar-inspired landmark.
 - On-foot movement now accelerates and brakes through a frame-rate-independent planar velocity ramp (4.8 m/s² acceleration, 6.5 m/s² braking); walk animation speed follows actual movement speed. Direction changes decelerate before reversing. Regression coverage for acceleration, braking, reversal and invalid velocity inputs passed in CI run #57 (65 JVM tests total). The 360-degree camera orbit/pitch, SUV driving and enter/exit interaction remain in place; player and pedestrian facing ease along the shortest yaw arc.
 - Four distinct rigged human GLBs (Aarav, Meera, bank employee and market farmer), plus two worker routes and two moving traffic vehicles.
+- Meera's daily route now passes the market frontage and Ganga promenade without crossing the market stall, riverside home or promenade bench. All three pedestrian loops are checked against the player collision AABBs with a conservative 0.45 m body-clearance margin.
 - Character scale is calculated from each loaded model's vertical AABB against adult stature targets. The full transformed AABB foot anchor (X/Y/Z) is now preserved and re-rotated during player, Meera and worker movement. Debug builds emit `Patna2047Scale` records with native height, scale and static world-Y bounds; publisher pages list source heights of 1.80 m, 1.70 m, 1.80 m and 1.90 m respectively. Actual device-side visible-height and animated-skeleton verification is still pending.
 - CI builds a Debug APK, runs JVM unit tests and Android Lint on pull requests. Latest gameplay revision passed all three plus APK verification/upload in Actions run #57; extracted APK is 52,728,016 bytes (SHA-256 `49a6df8635945ea6e71e0117e7b6b25995fcaa9fdc8acde3c5010692e31969e5`). Aarav/Meera remain the required on-foot actors; their validated GLBs are cached in a pinned app-cache folder. The SUV now loads after on-foot controls are live, and a missing SUV degrades safely to walking. Optional city models stream in with visible progress and a bounded 72 MB LRU cache.
 
 ## In progress
 
-1. **Human proportions and NPC routines** — PR #2 measures each loaded character's vertical bounds for scaling, separates bank/market routes, and keeps the full off-center model bottom anchor aligned as characters move and turn. JVM tests now cover rotated foot-anchor reconstruction. Still needs real-device or emulator visual verification, especially visible stature beside the SUV/buildings and animated skeleton bounds.
+1. **Human proportions and NPC routines** — PR #2 measures each loaded character's vertical bounds for scaling, separates bank/market routes, and keeps the full off-center model bottom anchor aligned as characters move and turn. JVM tests now cover rotated foot-anchor reconstruction. The daily pedestrian loops now also pass a geometry regression test against the static world collision map, including the market stall and Ganga promenade bench. Still needs real-device or emulator visual verification, especially visible stature beside the SUV/buildings and animated skeleton bounds.
 2. **Save/resume foundation** — implemented on PR #2 with Preferences DataStore: player/vehicle location, camera orientation, driving mode and the first story flag are saved locally on a five-second cadence, app stop, vehicle transitions and mission completion. Unit tests and Debug APK build passed on Actions run #49; real-device process-death/relaunch verification is still pending. This is not cloud sync or a multi-slot system.
 3. **Progressive world-asset loading** — Aarav and Meera are resolved from a pinned app-cache folder (which Android may still clear) or downloaded with a 12 s connect / 30 s read timeout and GLB v2 validation. Optional models use a 72 MB LRU cache; incomplete downloads are written to `.part` files and never reused. The player SUV now loads after walking controls become live, and saved driving mode is restored only when the SUV is ready. The 17 city assets still stream sequentially. Cold-start offline fallback, cache eviction on low storage and device memory/time-to-play still need real-device profiling.
 
@@ -34,6 +35,7 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 - Run ./gradlew testDebugUnitTest, ./gradlew lintDebug and ./gradlew assembleDebug; verify the APK exists and report its size.
 - Validate cached GLB magic/version/length, atomic `.part` handling, cache budget and offline fallback state transitions.
 - Check collision, touch controls, camera orbit/pitch, human grounding, vehicle enter/exit and loading regressions.
+- Keep every autonomous pedestrian waypoint loop outside static collision bounds with at least the configured body-clearance margin.
 - Prefer offline-capable, low-size assets with verified permissive licences; document exact source and attribution in ASSET_CREDITS.md.
 - Do not merge, release, deploy or change production settings without explicit approval.
 - State clearly when emulator/device visual QA was not available; never substitute code inspection for a visual test.

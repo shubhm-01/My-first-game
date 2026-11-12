@@ -346,6 +346,110 @@ internal fun pedestrianRouteAvoidsColliders(
     }
 }
 
+internal data class PedestrianBlocker(val x: Float, val z: Float, val radius: Float)
+
+internal data class PedestrianStep(val x: Float, val z: Float, val yielding: Boolean)
+
+private val PEDESTRIAN_AVOIDANCE_ANGLES = floatArrayOf(
+    0f,
+    -1.0471976f,
+    1.0471976f,
+    -1.5707964f,
+    1.5707964f
+)
+
+/**
+ * Advances a route-following pedestrian by one safe step.
+ *
+ * The direct route is preferred. If a player, another pedestrian, a vehicle or static
+ * world geometry blocks that step, the actor tries two shallow sidesteps and then two
+ * lateral steps. If none is safe, it yields in place instead of clipping through anything.
+ */
+internal fun pedestrianAvoidanceStep(
+    currentX: Float,
+    currentZ: Float,
+    targetX: Float,
+    targetZ: Float,
+    blockers: List<PedestrianBlocker>,
+    colliders: List<WorldCollider>,
+    deltaSeconds: Float,
+    speedMetersPerSecond: Float,
+    actorRadius: Float = 0.45f
+): PedestrianStep {
+    val safeX = currentX.takeIf { it.isFinite() } ?: 0f
+    val safeZ = currentZ.takeIf { it.isFinite() } ?: 0f
+    if (!currentX.isFinite() || !currentZ.isFinite() ||
+        !targetX.isFinite() || !targetZ.isFinite() ||
+        !deltaSeconds.isFinite() || !speedMetersPerSecond.isFinite() ||
+        !actorRadius.isFinite() || actorRadius <= 0f ||
+        blockers.any { !it.x.isFinite() || !it.z.isFinite() || !it.radius.isFinite() || it.radius < 0f } ||
+        colliders.any {
+            !it.minX.isFinite() || !it.maxX.isFinite() ||
+                !it.minZ.isFinite() || !it.maxZ.isFinite() ||
+                it.minX > it.maxX || it.minZ > it.maxZ
+        }
+    ) return PedestrianStep(safeX, safeZ, yielding = true)
+
+    val safeDelta = deltaSeconds.coerceIn(0f, 0.05f)
+    val safeSpeed = speedMetersPerSecond.coerceIn(0f, 2.5f)
+    if (safeDelta <= 0f || safeSpeed <= 0f) return PedestrianStep(safeX, safeZ, yielding = false)
+
+    val toTargetX = targetX - currentX
+    val toTargetZ = targetZ - currentZ
+    val targetDistance = sqrt(toTargetX * toTargetX + toTargetZ * toTargetZ)
+    if (targetDistance <= 0.0001f) return PedestrianStep(safeX, safeZ, yielding = false)
+
+    val stepDistance = minOf(targetDistance, safeSpeed * safeDelta)
+    val directionX = toTargetX / targetDistance
+    val directionZ = toTargetZ / targetDistance
+    var bestStep: PedestrianStep? = null
+    var bestScore = Float.POSITIVE_INFINITY
+
+    for (angle in PEDESTRIAN_AVOIDANCE_ANGLES) {
+        val c = cos(angle)
+        val s = sin(angle)
+        val candidateDirectionX = directionX * c - directionZ * s
+        val candidateDirectionZ = directionX * s + directionZ * c
+        val candidateX = currentX + candidateDirectionX * stepDistance
+        val candidateZ = currentZ + candidateDirectionZ * stepDistance
+
+        if (candidateX - actorRadius < -480f || candidateX + actorRadius > 480f ||
+            candidateZ - actorRadius < -480f || candidateZ + actorRadius > 480f
+        ) continue
+
+        val hitsStaticGeometry = colliders.any { obstacle ->
+            candidateX + actorRadius > obstacle.minX &&
+                candidateX - actorRadius < obstacle.maxX &&
+                candidateZ + actorRadius > obstacle.minZ &&
+                candidateZ - actorRadius < obstacle.maxZ
+        }
+        if (hitsStaticGeometry) continue
+
+        val hitsMovingActor = blockers.any { blocker ->
+            val separationX = candidateX - blocker.x
+            val separationZ = candidateZ - blocker.z
+            val minimumSeparation = actorRadius + blocker.radius + 0.28f
+            separationX * separationX + separationZ * separationZ <
+                minimumSeparation * minimumSeparation
+        }
+        if (hitsMovingActor) continue
+
+        val remainingX = targetX - candidateX
+        val remainingZ = targetZ - candidateZ
+        val remainingDistance = sqrt(remainingX * remainingX + remainingZ * remainingZ)
+        if (targetDistance - remainingDistance <= 0.00001f) continue
+
+        // Keep the best progress while adding a small cost for unnecessary sideways motion.
+        val score = remainingDistance + stepDistance * kotlin.math.abs(angle) * 0.08f
+        if (score < bestScore) {
+            bestScore = score
+            bestStep = PedestrianStep(candidateX, candidateZ, yielding = false)
+        }
+    }
+
+    return bestStep ?: PedestrianStep(safeX, safeZ, yielding = true)
+}
+
 private fun hitsWorld(x: Float, z: Float, radius: Float): Boolean =
     x - radius < -480f || x + radius > 480f || z - radius < -480f || z + radius > 480f ||
         PATNA_COLLIDERS.any { x + radius > it.minX && x - radius < it.maxX && z + radius > it.minZ && z - radius < it.maxZ }
@@ -889,11 +993,36 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 )
                 cameraNode.lookAt(Position(x = followX, y = input.cameraLookHeight, z = followZ))
 
+                val avoidancePlayer = PedestrianBlocker(
+                    x = if (input.driving) input.carX else px,
+                    z = if (input.driving) input.carZ else pz,
+                    radius = if (input.driving) 2.35f else 0.45f
+                )
+                val trafficBlockers = currentTrafficNodes.map { traffic ->
+                    PedestrianBlocker(traffic.position.x, traffic.position.z, 2.15f)
+                }
+                val meeraBlockers = listOf(avoidancePlayer) +
+                    currentRoutines.map { PedestrianBlocker(it.x, it.z, 0.45f) } +
+                    trafficBlockers
                 val target = npcRoute[segment]
                 val nx = target.x - npcX
                 val nz = target.z - npcZ
                 val distance = sqrt(nx * nx + nz * nz)
-                val npcWalking = distance >= 0.65f
+                val meeraStep = if (distance >= 0.65f) {
+                    pedestrianAvoidanceStep(
+                        currentX = npcX,
+                        currentZ = npcZ,
+                        targetX = target.x,
+                        targetZ = target.z,
+                        blockers = meeraBlockers,
+                        colliders = PATNA_COLLIDERS,
+                        deltaSeconds = dt,
+                        speedMetersPerSecond = 1.3f
+                    )
+                } else {
+                    PedestrianStep(npcX, npcZ, yielding = false)
+                }
+                val npcWalking = distance >= 0.65f && !meeraStep.yielding
                 if (lastNpcWalking != npcWalking) {
                     if (npc.animationCount > 0) npc.setAnimationSpeed(0, if (npcWalking) 0.9f else 0f)
                     lastNpcWalking = npcWalking
@@ -904,11 +1033,12 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         pause = 0f
                         segment = (segment + 1) % npcRoute.size
                     }
-                } else {
-                    val step = (1.3f * dt).coerceAtMost(distance)
-                    npcX += nx / distance * step
-                    npcZ += nz / distance * step
-                    val targetNpcYaw = kotlin.math.atan2(nx, nz) * 180f / PI.toFloat() + 180f
+                } else if (npcWalking) {
+                    val stepX = meeraStep.x - npcX
+                    val stepZ = meeraStep.z - npcZ
+                    npcX = meeraStep.x
+                    npcZ = meeraStep.z
+                    val targetNpcYaw = kotlin.math.atan2(stepX, stepZ) * 180f / PI.toFloat() + 180f
                     npcYawDegrees = approachYawDegrees(npcYawDegrees, targetNpcYaw, 360f * dt)
                 }
                 npc.rotation = Rotation(y = npcYawDegrees)
@@ -948,7 +1078,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     nearHome = homeNearby
                 }
                 val golgharNearby = sqrt((px - 56f) * (px - 56f) + (pz + 28f) * (pz + 28f)) < 11f
-                // Independent pedestrian routes around the bus stop and market stall.
+                // Independent pedestrian routes use local yielding and sidesteps around moving actors.
                 currentRoutines.forEachIndexed { index, routine ->
                     val worker = routine.node
                     val route = routine.waypoints
@@ -956,6 +1086,28 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     val wx = targetWorker.x - routine.x
                     val wz = targetWorker.z - routine.z
                     val workerDistance = sqrt(wx * wx + wz * wz)
+                    val workerBlockers = listOf(
+                        avoidancePlayer,
+                        PedestrianBlocker(npcX, npcZ, 0.45f)
+                    ) + currentRoutines.mapIndexedNotNull { otherIndex, other ->
+                        if (otherIndex == index) null else PedestrianBlocker(other.x, other.z, 0.45f)
+                    } + trafficBlockers
+                    val workerStep = if (workerDistance >= 0.5f) {
+                        pedestrianAvoidanceStep(
+                            currentX = routine.x,
+                            currentZ = routine.z,
+                            targetX = targetWorker.x,
+                            targetZ = targetWorker.z,
+                            blockers = workerBlockers,
+                            colliders = PATNA_COLLIDERS,
+                            deltaSeconds = dt,
+                            speedMetersPerSecond = 1.25f
+                        )
+                    } else {
+                        PedestrianStep(routine.x, routine.z, yielding = false)
+                    }
+                    val workerWalking = workerDistance >= 0.5f && !workerStep.yielding
+
                     if (workerDistance < 0.5f) {
                         // Stop the walk cycle at a work/rest stop instead of walking in place.
                         if (workerLastWalking[index]) {
@@ -967,17 +1119,23 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                             workerPauses[index] = 0f
                             workerSegments[index] = (workerSegments[index] + 1) % route.size
                         }
-                    } else {
+                    } else if (workerWalking) {
                         if (!workerLastWalking[index]) {
                             if (worker.animationCount > 0) worker.setAnimationSpeed(0, routine.walkAnimationSpeed)
                             workerLastWalking[index] = true
                         }
-                        val step = (1.25f * dt).coerceAtMost(workerDistance)
-                        routine.x += wx / workerDistance * step
-                        routine.z += wz / workerDistance * step
-                        val targetWorkerYaw = kotlin.math.atan2(wx, wz) * 180f / PI.toFloat() + 180f
+                        val stepX = workerStep.x - routine.x
+                        val stepZ = workerStep.z - routine.z
+                        routine.x = workerStep.x
+                        routine.z = workerStep.z
+                        val targetWorkerYaw = kotlin.math.atan2(stepX, stepZ) * 180f / PI.toFloat() + 180f
                         routine.yawDegrees = approachYawDegrees(routine.yawDegrees, targetWorkerYaw, 360f * dt)
+                    } else if (workerLastWalking[index]) {
+                        // Yield in place until the nearby player, pedestrian or vehicle clears.
+                        if (worker.animationCount > 0) worker.setAnimationSpeed(0, 0f)
+                        workerLastWalking[index] = false
                     }
+
                     worker.rotation = Rotation(y = routine.yawDegrees)
                     worker.position = routine.grounding.rootPosition(
                         routine.x,

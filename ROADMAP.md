@@ -44,12 +44,14 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 
 ## Prioritized next milestones
 
+- **Day/night foundation:** a session-local 24-minute clock now drives the sun and three warm street lamps; next persist the clock and validate exposure, readability and frame time on a real Android device.
+
 1. **Character and camera validation:** inspect the new `Patna2047Scale` debug logs, compare measured static bounds to the SUV and street furniture, then verify screenshots on a real Android device or emulator. The current static AABB does not prove animated-skeleton extremes; capture deformed bounds across the walk cycle before declaring scale verified. Add true idle/work animation clips only after confirming the actual GLB clip names.
 2. **Movement and collision polish:** shortest-arc character turning is frame-rate limited (player 540°/s, pedestrians 360°/s). On-foot planar acceleration (4.8 m/s²), braking (6.5 m/s²), direction reversal and velocity-linked walk animation are covered by JVM tests. The first local pedestrian-yielding/sidestep layer now checks the player, other pedestrians, traffic and static colliders before moving; Actions run #61 passed the new avoidance tests, full JVM suite and Android Lint. Real-device validation remains pending; next improve vehicle exit points and broader traffic awareness.
 3. **Vehicle expansion:** introduce one licensed motorcycle asset, then add a selectable bike, steering/braking, wheel rotation and reliable enter/exit. Keep the SUV as the regression baseline.
 4. **Living market block:** add a small coherent market lane with distinct shopfronts, stalls, signboards and a few role-specific NPC routines before expanding the map footprint.
 5. **Reliable asset delivery:** the core character cache and bounded optional-model LRU are implemented. Next validate warm offline launches and low-storage eviction on devices, then add a locally generated low-poly character fallback so a first-ever offline install can still move around the city. Evaluate texture/mesh LODs that preserve rigs and add cancellation/progress for long downloads.
-6. **World depth:** add interiors and meaningful POIs, mission progression, day/night and weather in separate testable increments.
+6. **World depth:** add interiors and meaningful POIs, mission progression, weather and atmospheric variation; persist the session day/night clock across process death.
 7. **Mobile performance:** measure frame time, memory and thermal behaviour; use distance-based visibility/LOD and graphics presets before adding dense crowds or large districts.
 
 ## Quality gates for every gameplay PR
@@ -79,3 +81,12 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 - Vehicle exit now requires the SUV to be effectively stopped (≤ 0.8 m/s). The passenger-side step-out point is preferred; the opposite side is used only when its expanded static-collider box and dynamic pedestrian/worker/traffic clearances are safe.
 - If both sides are obstructed or collision data is invalid, the interaction refuses to exit and asks the player to reposition the vehicle rather than teleporting Aarav through geometry.
 - Seven JVM regression cases cover preferred-side selection, opposite-side fallback, both-sides-blocked refusal, pedestrian/traffic occupancy, rotated vehicle heading, invalid collision data and the near-stop speed gate. Device-side exit animation and collision feel still need visual/play testing.
+
+
+## Latest update — 2026-11-13: session day/night lighting
+
+- Added a 24-minute real-time world day: the simulation starts at 08:00 and advances one in-game minute per real second, with a 24-hour HUD clock and morning/afternoon/evening/night phase labels.
+- The main directional sun now changes intensity, colour temperature and direction through sunrise, midday, sunset and night. Three shadow-free warm point lights fade in around the existing procedural street lamps after dusk; no new downloads or third-party assets are required.
+- Lighting updates are throttled to 4 Hz and the clock label to 1 Hz, avoiding per-frame Compose recomposition. The night fill is intentionally non-zero for mobile readability.
+- World time is currently session-local and resets to 08:00 after a fresh process; save persistence, device brightness tuning, visual screenshots and frame-time profiling remain pending.
+- This is a first lighting pass, not a full skybox, physically based atmosphere, weather system or verified day/night visual result.

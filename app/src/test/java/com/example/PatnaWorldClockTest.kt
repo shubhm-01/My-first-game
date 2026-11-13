@@ -3,6 +3,7 @@ package com.example
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.sqrt
 
 class PatnaWorldClockTest {
     @Test
@@ -55,6 +56,20 @@ class PatnaWorldClockTest {
 
         assertTrue(dawn.sunColorRed - dawn.sunColorBlue > noon.sunColorRed - noon.sunColorBlue)
         assertTrue(dusk.sunColorRed - dusk.sunColorBlue > noon.sunColorRed - noon.sunColorBlue)
+    }
+
+    @Test
+    fun sunDirectionIsUnitLengthAcrossTheDay() {
+        val times = listOf(0f, 6.8f * 60f, 12f * 60f, 17.2f * 60f, 23f * 60f)
+        times.forEach { minute ->
+            val lighting = patnaLightingAt(minute)
+            val length = sqrt(
+                lighting.sunDirectionX * lighting.sunDirectionX +
+                    lighting.sunDirectionY * lighting.sunDirectionY +
+                    lighting.sunDirectionZ * lighting.sunDirectionZ
+            )
+            assertEquals(1f, length, 0.0001f)
+        }
     }
 
     @Test

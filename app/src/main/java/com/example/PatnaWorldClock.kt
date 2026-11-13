@@ -6,6 +6,7 @@ import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /** One complete 24-hour in-game day takes 24 real minutes (one game minute per second). */
 internal const val PATNA_WORLD_DAY_LENGTH_SECONDS = 24f * 60f
@@ -85,9 +86,16 @@ internal fun patnaLightingAt(minuteOfDay: Float): PatnaWorldLighting {
 
     // The light keeps a shallow downward direction below the horizon so the night scene remains
     // legible; its low intensity and warm local lamps provide the dusk/night distinction.
-    val directionX = cos(solarAngle) * 0.6f
-    val directionY = -max(0.15f, daylight)
-    val directionZ = -0.5f
+    // Filament LightManager.setDirection requires a unit vector.
+    val rawDirectionX = cos(solarAngle) * 0.6f
+    val rawDirectionY = -max(0.15f, daylight)
+    val rawDirectionZ = -0.5f
+    val directionLength = sqrt(
+        rawDirectionX * rawDirectionX + rawDirectionY * rawDirectionY + rawDirectionZ * rawDirectionZ
+    ).coerceAtLeast(0.0001f)
+    val directionX = rawDirectionX / directionLength
+    val directionY = rawDirectionY / directionLength
+    val directionZ = rawDirectionZ / directionLength
     val streetLampCandela = 260f * (1f - daylightCurve).coerceIn(0f, 1f).pow(1.2f)
 
     return PatnaWorldLighting(

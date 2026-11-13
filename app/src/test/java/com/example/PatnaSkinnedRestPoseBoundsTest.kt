@@ -34,11 +34,36 @@ class PatnaSkinnedRestPoseBoundsTest {
     }
 
     @Test
+    fun measuresOnlyTheDeclaredDefaultSceneAndIgnoresAlternateSceneGeometry() {
+        val bounds = PatnaSkinnedRestPoseBounds.fromGlb(
+            riggedCharacterGlb(multipleScenes = true, defaultSceneIndex = 1)
+        )
+
+        assertNotNull(bounds)
+        assertEquals(1.89f, bounds!!.height, 0.0001f)
+        assertEquals(0f, bounds.minY, 0.0001f)
+        assertEquals(1.89f, bounds.maxY, 0.0001f)
+    }
+
+    @Test
+    fun refusesToGuessWhenMultipleScenesHaveNoDeclaredDefault() {
+        assertNull(
+            PatnaSkinnedRestPoseBounds.fromGlb(
+                riggedCharacterGlb(multipleScenes = true, defaultSceneIndex = null)
+            )
+        )
+    }
+
+    @Test
     fun rejectsAnInvalidGlbInsteadOfReturningUntrustedBounds() {
         assertNull(PatnaSkinnedRestPoseBounds.fromGlb(ByteBuffer.wrap("not a GLB".toByteArray())))
     }
 
-    private fun riggedCharacterGlb(readableInfluences: Boolean = true): ByteBuffer {
+    private fun riggedCharacterGlb(
+        readableInfluences: Boolean = true,
+        multipleScenes: Boolean = false,
+        defaultSceneIndex: Int? = 0
+    ): ByteBuffer {
         val positions = floatArrayOf(-10f, 0f, 0f, 10f, 0f, 0f, 0f, 189f, 0f)
         val joints = ByteArray(12)
         val weights = FloatArray(12) { if (it % 4 == 0) 1f else 0f }
@@ -54,15 +79,28 @@ class PatnaSkinnedRestPoseBoundsTest {
         } else {
             """"JOINTS_0":99,"WEIGHTS_0":99"""
         }
+        val sceneMetadata = buildString {
+            if (defaultSceneIndex != null) append("\"scene\":$defaultSceneIndex,")
+            if (multipleScenes) {
+                append("\"scenes\":[{\"nodes\":[0,1,3]},{\"nodes\":[0,1]}],")
+            } else {
+                append("\"scenes\":[{\"nodes\":[0,1]}],")
+            }
+        }
+        val alternateSceneNode = if (multipleScenes) {
+            ",{\"mesh\":0,\"translation\":[0,500,0]}"
+        } else {
+            ""
+        }
         val json = """
             {
               "asset":{"version":"2.0"},
-              "scene":0,
-              "scenes":[{"nodes":[0,1]}],
+              $sceneMetadata
               "nodes":[
                 {"mesh":0,"skin":0},
                 {"scale":[0.01,0.01,0.01],"children":[2]},
                 {"translation":[0,100,0]}
+                $alternateSceneNode
               ],
               "meshes":[{"primitives":[{"attributes":{"POSITION":0,$influences}}]}],
               "skins":[{"joints":[2],"inverseBindMatrices":3}],

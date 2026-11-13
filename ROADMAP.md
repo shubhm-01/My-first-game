@@ -1,6 +1,6 @@
 # Patna 2047 — living development roadmap
 
-Last updated: 2026-11-12
+Last updated: 2026-11-13
 
 Patna 2047 is being developed as a mobile-first, third-person Indian city exploration and driving game. Work is delivered in small reviewable layers; this roadmap is intentionally maintained as the prototype grows.
 
@@ -34,6 +34,13 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 - Character sizing/grounding now prefers this skin-aware rest-pose box, then the transformed renderable hierarchy box, then the original accessor box. The calculation runs on `Dispatchers.Default` before SceneView 2.2.1 releases source data. Non-skinned city assets and their existing cube sizing are unchanged.
 - Added a regression rig matching the upstream centimetre-export pattern: 189-unit mesh vertices under an armature scaled by 0.01 must measure 1.89 m after skinning. Added unreadable-influence fallback and invalid-GLB tests.
 - This handles rest-pose skin transforms, not every animation clip or morph target. Device-side stature, foot-contact and camera-framing screenshots remain mandatory before considering the reported oversized-human issue visually resolved.
+
+## Latest update — 2026-11-13: glTF default-scene bounds isolation
+
+- The skin-aware rest-pose parser now measures only the glTF scene selected by the top-level `scene` property, matching Filament's documented default-scene-only loading behavior. It no longer unions alternate/editor scenes into a character's native height.
+- When a GLB contains multiple scenes but declares no default scene, the parser declines to guess and returns to the already-measured live renderable-hierarchy fallback. A single-scene file without an explicit index remains unambiguous.
+- Added synthetic GLB regression coverage with an alternate scene containing a static mesh translated 500 m upward; the declared default character scene still measures 1.89 m. Added a second test proving ambiguous multi-scene files fail closed.
+- This is a parser correctness improvement, not proof that the four existing Grab3D downloads contain alternate scenes. Their actual scene metadata and on-device animated bounds still need capture.
 
 ## Prioritized next milestones
 

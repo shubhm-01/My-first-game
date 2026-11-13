@@ -199,7 +199,8 @@ internal object PatnaSkinnedRestPoseBounds {
         val skins = json.optJSONArray("skins")
         val bounds = Bounds()
         var hasSkinnedMesh = false
-        for (nodeIndex in world.instantiated(json.optJSONArray("scenes"))) {
+        val defaultSceneIndex = json.optInt("scene", -1)
+        for (nodeIndex in world.instantiated(json.optJSONArray("scenes"), defaultSceneIndex)) {
             val node = nodes.optJSONObject(nodeIndex) ?: continue
             val mesh = meshes.optJSONObject(node.optInt("mesh", -1)) ?: continue
             val skin = node.optInt("skin", -1).takeIf { it >= 0 }?.let { skins?.optJSONObject(it) ?: return null }
@@ -313,16 +314,28 @@ internal object PatnaSkinnedRestPoseBounds {
             return cache[node]!!
         }
 
-        fun instantiated(scenes: JSONArray?): Set<Int> {
-            val roots = buildList {
-                if (scenes != null && scenes.length() > 0) {
-                    for (scene in 0 until scenes.length()) {
-                        val sceneNodes = scenes.optJSONObject(scene)?.optJSONArray("nodes") ?: continue
-                        for (index in 0 until sceneNodes.length()) add(sceneNodes.optInt(index, -1))
-                    }
-                } else {
-                    for (index in 0 until count) if (parents[index] < 0) add(index)
+        /**
+         * Mirrors Filament's default-scene-only import behavior. Unioning every glTF scene can
+         * include editor previews or alternate setups that are not rendered, inflating stature.
+         * With multiple scenes and no declared default, fail closed so the live Filament
+         * renderable hierarchy can provide the fallback measurement instead of guessing.
+         */
+        fun instantiated(scenes: JSONArray?, defaultSceneIndex: Int): Set<Int> {
+            val roots = if (scenes != null && scenes.length() > 0) {
+                val selectedScene = when {
+                    defaultSceneIndex in 0 until scenes.length() -> defaultSceneIndex
+                    scenes.length() == 1 -> 0
+                    else -> return emptySet()
                 }
+                val sceneNodes = scenes.optJSONObject(selectedScene)?.optJSONArray("nodes")
+                    ?: return emptySet()
+                buildList {
+                    for (index in 0 until sceneNodes.length()) {
+                        add(sceneNodes.optInt(index, -1))
+                    }
+                }
+            } else {
+                (0 until count).filter { parents[it] < 0 }
             }
             val visited = LinkedHashSet<Int>()
             val stack = ArrayDeque(roots.filter { it in 0 until count })

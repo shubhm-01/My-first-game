@@ -86,16 +86,16 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 ## Latest update — 2026-11-13: session day/night lighting
 
 - Added a 24-minute real-time world day: the simulation starts at 08:00 and advances one in-game minute per real second, with a 24-hour HUD clock and morning/afternoon/evening/night phase labels.
-- The main directional sun now changes intensity, colour temperature and direction through sunrise, midday, sunset and night. Three shadow-free warm point lights fade in around the existing procedural street lamps after dusk; no new downloads or third-party assets are required.
+- The main directional sun now changes intensity, colour temperature and direction through sunrise, midday, sunset and night. Its direction is normalized to Filament's required unit vector, with a regression test across night/dawn/noon/dusk. Three shadow-free warm point lights fade in around the existing procedural street lamps after dusk; no new downloads or third-party assets are required.
 - Lighting updates are throttled to 4 Hz and the clock label to 1 Hz, avoiding per-frame Compose recomposition. The night fill is intentionally non-zero for mobile readability.
 - World time is currently session-local and resets to 08:00 after a fresh process; save persistence, device brightness tuning, visual screenshots and frame-time profiling remain pending.
 - This is a first lighting pass, not a full skybox, physically based atmosphere, weather system or verified day/night visual result.
 
-## Latest verification — 2026-11-13 (GitHub Actions run #71)
+## Latest verification — 2026-11-13 (GitHub Actions run #73)
 
-- `./gradlew testDebugUnitTest --no-daemon` passed, including the eight new `PatnaWorldClockTest` cases.
+- `./gradlew testDebugUnitTest --no-daemon` passed, including the nine `PatnaWorldClockTest` cases.
 - `./gradlew lintDebug --no-daemon` passed.
 - `./gradlew assembleDebug --no-daemon --stacktrace` passed.
-- APK existence check passed. `app-debug.apk` is **52,777,168 bytes**; `PATNA-2047-DEBUG-APK` uploaded successfully (compressed artifact: 40,603,549 bytes). [Actions run #71](https://github.com/shubhm-01/My-first-game/actions/runs/43440715952).
+- APK existence check passed. `app-debug.apk` is **52,777,168 bytes**; `PATNA-2047-DEBUG-APK` uploaded successfully (compressed artifact: 40,603,571 bytes). [Actions run #71](https://github.com/shubhm-01/My-first-game/actions/runs/43441856911).
 - No Android emulator or physical device was available. Day/night exposure, streetlamp falloff, camera composition, pedestrian/vehicle feel, frame time, GPU/memory and thermal behaviour remain unverified in rendered gameplay. The CI run validates source compilation and JVM logic, not visual correction.
 - The four Grab3D runtime URLs were checked with read-only HTTP HEAD requests for exact byte sizes and package provenance; their binary vertex/joint data was not downloaded or parsed in this run. Static/runtime character bounds and animated visible heights remain pending device capture.

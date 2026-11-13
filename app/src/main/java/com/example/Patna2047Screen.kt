@@ -1,6 +1,7 @@
 package com.example
 
 import android.util.Log
+import com.google.android.filament.LightManager
 import dev.romainguy.kotlin.math.inverse
 import java.io.File
 import androidx.compose.foundation.background
@@ -49,10 +50,12 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.sceneview.Scene
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberMaterialLoader
+import io.github.sceneview.rememberMainLightNode
 import io.github.sceneview.rememberModelLoader
 import io.github.sceneview.rememberNodes
 import io.github.sceneview.rememberCameraNode
 import io.github.sceneview.node.ModelNode
+import io.github.sceneview.node.LightNode
 import io.github.sceneview.node.PlaneNode
 import io.github.sceneview.node.CubeNode
 import io.github.sceneview.node.CylinderNode
@@ -60,6 +63,7 @@ import io.github.sceneview.node.GeometryNode
 import io.github.sceneview.geometries.Geometry
 import io.github.sceneview.geometries.UvCoordinate
 import io.github.sceneview.math.Direction
+import io.github.sceneview.math.colorOf
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
 import io.github.sceneview.math.Scale
@@ -598,6 +602,11 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine)
     val materialLoader = rememberMaterialLoader(engine)
+    val sunLight = rememberMainLightNode(engine) {
+        intensity = 84_900f
+        color = colorOf(1f, 0.98f, 0.96f)
+        lightDirection = Direction(0f, -1f, -0.4f)
+    }
     val cameraNode = rememberCameraNode(engine) {
         position = Position(x = -14f, y = 3.9f, z = 29f)
         lookAt(Position(x = -14f, y = PATNA_CAMERA_DEFAULT_LOOK_HEIGHT, z = 22f))
@@ -608,6 +617,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var loading by remember { mutableStateOf(true) }
     var worldReady by remember { mutableStateOf(false) }
     var loadMessage by remember { mutableStateOf("Preparing Patna 2047…") }
+    var worldClockLabel by remember { mutableStateOf("08:00 • MORNING") }
     var dialogue by remember { mutableStateOf("Ganga ke kinare ek nayi subah…") }
     var objective by remember { mutableStateOf("Explore the riverfront and meet Meera.") }
     var showJournal by remember { mutableStateOf(false) }
@@ -639,6 +649,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var pedestrianRoutines by remember { mutableStateOf<List<PedestrianRoutine>>(emptyList()) }
     var vehicleNode by remember { mutableStateOf<ModelNode?>(null) }
     var trafficNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
+    var streetLampLights by remember { mutableStateOf<List<LightNode>>(emptyList()) }
     var backgroundAssetsCompleted by remember { mutableStateOf(0) }
     var backgroundAssetsFailed by remember { mutableStateOf(0) }
     var playerVehicleUnavailable by remember { mutableStateOf(false) }
@@ -817,6 +828,18 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             sceneNodes += CylinderNode(engine, radius = 0.08f, height = 5.8f, materialInstance = darkStone).apply { position = Position(x = x, y = 2.9f, z = 10f) }
             sceneNodes += CubeNode(engine, size = Size(x = 0.8f, y = 0.12f, z = 0.12f), materialInstance = roadPaint).apply { position = Position(x = x + 0.28f, y = 5.68f, z = 10f) }
         }
+        // Three shadow-free warm point lights bring the procedural road lamps to life after dusk.
+        val lampLights = listOf(-8f, 24f, 60f).map { x ->
+            LightNode(engine, LightManager.Type.POINT) {
+                intensity(1f)
+                color(1f, 0.72f, 0.42f)
+                falloff(15f)
+            }.apply {
+                lightPosition = Position(x = x + 0.28f, y = 5.5f, z = 10f)
+            }
+        }
+        streetLampLights = lampLights
+        sceneNodes.addAll(lampLights)
 
         // Load the two essential on-foot actors and the player's SUV before enabling controls.
         // Homes, workers, traffic and skyline props stream in after the first playable frame.
@@ -938,6 +961,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     val latestVehicleNode = rememberUpdatedState(vehicleNode)
     val latestPedestrianRoutines = rememberUpdatedState(pedestrianRoutines)
     val latestTrafficNodes = rememberUpdatedState(trafficNodes)
+    val latestStreetLampLights = rememberUpdatedState(streetLampLights)
 
     LaunchedEffect(worldReady, playerNode, npcNode) {
         val player = playerNode ?: return@LaunchedEffect
@@ -953,6 +977,9 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         var npcZ = 34f
         var npcYawDegrees = 180f
         var previous = 0L
+        var worldMinuteOfDay = PATNA_WORLD_START_MINUTE.toFloat()
+        var clockUiAccumulator = 0f
+        var lightingAccumulator = 0f
         var saveAccumulator = 0f
         var px = input.playerX
         var pz = input.playerZ
@@ -989,6 +1016,30 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             withFrameNanos { now ->
                 val dt = if (previous == 0L) 0.016f else ((now - previous) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
                 previous = now
+
+                worldMinuteOfDay = advancePatnaWorldMinutes(worldMinuteOfDay, dt)
+                clockUiAccumulator += dt
+                lightingAccumulator += dt
+                if (lightingAccumulator >= 0.25f) {
+                    val lighting = patnaLightingAt(worldMinuteOfDay)
+                    sunLight.intensity = lighting.sunIntensityLux
+                    sunLight.color = colorOf(
+                        lighting.sunColorRed,
+                        lighting.sunColorGreen,
+                        lighting.sunColorBlue
+                    )
+                    sunLight.lightDirection = Direction(
+                        lighting.sunDirectionX,
+                        lighting.sunDirectionY,
+                        lighting.sunDirectionZ
+                    )
+                    latestStreetLampLights.value.forEach { it.setIntensityCandela(lighting.streetLampCandela) }
+                    lightingAccumulator %= 0.25f
+                }
+                if (clockUiAccumulator >= 1f) {
+                    worldClockLabel = "${formatPatnaWorldTime(worldMinuteOfDay)} • ${patnaDayPhase(worldMinuteOfDay)}"
+                    clockUiAccumulator %= 1f
+                }
 
                 val currentVehicle = latestVehicleNode.value
                 if (currentVehicle !== activeVehicleNode) {
@@ -1325,6 +1376,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             modelLoader = modelLoader,
             materialLoader = materialLoader,
             cameraNode = cameraNode,
+            mainLightNode = sunLight,
             cameraManipulator = null,
             childNodes = sceneNodes,
             onFrame = { }
@@ -1371,6 +1423,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         ) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Text("LIVE WORLD", color = Color(0xFFFFD99A), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("WORLD • $worldClockLabel", color = Color(0xFFFFD99A), fontSize = 9.sp)
                 Text(
                     when {
                         loading -> loadMessage

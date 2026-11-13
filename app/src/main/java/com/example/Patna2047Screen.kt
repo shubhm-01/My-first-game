@@ -1417,16 +1417,34 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             Button(
                 onClick = {
                     if (input.driving) {
-                        // Step out on the passenger side and resume walking.
-                        val exitX = input.carX + 3.4f
-                        val exitZ = input.carZ
-                        val exitClear = !hitsWorld(exitX, exitZ, 0.5f)
-                        input.playerX = if (exitClear) exitX else input.carX - 3.4f
-                        input.playerZ = exitZ
-                        input.driving = false
-                        input.carSpeed = 0f
-                        input.yaw = input.carYaw
-                        dialogue = "Aarav: Gaadi park kar di. Ab paidal Meera ke paas chalte hain."
+                        if (!canExitVehicleAtSpeed(input.carSpeed)) {
+                            dialogue = "Aarav: Pehle gaadi rokte hain, phir bahar nikalte hain."
+                        } else {
+                            // Never teleport Aarav through a wall, pedestrian or moving car.
+                            // Prefer the passenger side, then use the opposite side only if clear.
+                            val exitBlockers = buildList {
+                                npcNode?.let { add(PedestrianBlocker(it.position.x, it.position.z, 0.8f)) }
+                                pedestrianRoutines.forEach { add(PedestrianBlocker(it.x, it.z, 0.55f)) }
+                                trafficNodes.forEach { add(PedestrianBlocker(it.position.x, it.position.z, 2.4f)) }
+                            }
+                            val exitSpot = findSafeVehicleExitSpot(
+                                carX = input.carX,
+                                carZ = input.carZ,
+                                carYawRadians = input.carYaw,
+                                colliders = PATNA_COLLIDERS,
+                                blockers = exitBlockers
+                            )
+                            if (exitSpot == null) {
+                                dialogue = "Aarav: Dono taraf jagah nahi hai. Thoda aage gaadi park karte hain."
+                            } else {
+                                input.playerX = exitSpot.x
+                                input.playerZ = exitSpot.z
+                                input.driving = false
+                                input.carSpeed = 0f
+                                input.yaw = input.carYaw
+                                dialogue = "Aarav: Gaadi safely park kar di. Ab paidal Meera ke paas chalte hain."
+                            }
+                        }
                     } else if (nearCar && vehicleNode != null) {
                         input.driving = true
                         input.carSpeed = 0f

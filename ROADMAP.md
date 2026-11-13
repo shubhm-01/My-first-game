@@ -72,3 +72,10 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 - Run #61 emitted GitHub Actions Node 20 / `setup-java@v4` deprecation warnings. The workflow action majors have now been updated to Node 24-compatible releases; run #62 must verify that workflow-only migration.
 - No Android emulator or physical-device visual QA was available. Pedestrian avoidance behaviour is unit-tested, not yet visually validated in gameplay.
 - No new third-party game assets were imported.
+
+
+## Latest update — 2026-11-13: collision-aware vehicle exits
+
+- Vehicle exit now requires the SUV to be effectively stopped (≤ 0.8 m/s). The passenger-side step-out point is preferred; the opposite side is used only when its expanded static-collider box and dynamic pedestrian/worker/traffic clearances are safe.
+- If both sides are obstructed or collision data is invalid, the interaction refuses to exit and asks the player to reposition the vehicle rather than teleporting Aarav through geometry.
+- Seven JVM regression cases cover preferred-side selection, opposite-side fallback, both-sides-blocked refusal, pedestrian/traffic occupancy, rotated vehicle heading, invalid collision data and the near-stop speed gate. Device-side exit animation and collision feel still need visual/play testing.

@@ -1,5 +1,9 @@
 package com.example
 
+import android.util.Log
+import com.google.android.filament.LightManager
+import dev.romainguy.kotlin.math.inverse
+import java.io.File
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -22,10 +26,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -33,16 +40,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.sceneview.Scene
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberMaterialLoader
+import io.github.sceneview.rememberMainLightNode
 import io.github.sceneview.rememberModelLoader
 import io.github.sceneview.rememberNodes
 import io.github.sceneview.rememberCameraNode
 import io.github.sceneview.node.ModelNode
+import io.github.sceneview.node.LightNode
 import io.github.sceneview.node.PlaneNode
 import io.github.sceneview.node.CubeNode
 import io.github.sceneview.node.CylinderNode
@@ -50,14 +63,21 @@ import io.github.sceneview.node.GeometryNode
 import io.github.sceneview.geometries.Geometry
 import io.github.sceneview.geometries.UvCoordinate
 import io.github.sceneview.math.Direction
+import io.github.sceneview.math.colorOf
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
+import io.github.sceneview.math.Scale
 import io.github.sceneview.math.Size
+import io.github.sceneview.math.Transform
+import io.github.sceneview.math.times
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val MAN_GLB = "https://grab3d.com/dl/man-rigged/man-rigged.glb"
 private const val WOMAN_GLB = "https://grab3d.com/dl/woman-rigged/woman-rigged.glb"
@@ -82,8 +102,8 @@ private class PatnaInput {
     // Camera yaw is deliberately unbounded: a full orbit is allowed.
     var yaw = 0f
     var cameraHeight = 3.9f
-    // Camera target height is the pitch control: swipe up to look towards the horizon/sky.
-    var cameraLookHeight = 2.8f
+    // Aim at an adult's torso by default; vertical drag makes a small framing adjustment.
+    var cameraLookHeight = PATNA_CAMERA_DEFAULT_LOOK_HEIGHT
     var interact = false
     var driving by mutableStateOf(false)
     var playerX = -18f
@@ -92,12 +112,310 @@ private class PatnaInput {
     var carZ = 18f
     var carYaw = 0f
     var carSpeed = 0f
+    // Persisted simulation time; plain state avoids a Compose recomposition every frame.
+    var worldMinuteOfDay = PATNA_WORLD_START_MINUTE.toFloat()
+
+    fun restore(saved: PatnaSaveState) {
+        val safe = saved.sanitized()
+        playerX = safe.playerX
+        playerZ = safe.playerZ
+        carX = safe.carX
+        carZ = safe.carZ
+        carYaw = safe.carYaw
+        yaw = safe.cameraYaw
+        cameraLookHeight = safe.cameraLookHeight
+        driving = safe.driving
+        carSpeed = 0f
+        worldMinuteOfDay = safe.worldMinuteOfDay
+    }
+
+    fun snapshot(hasMet: Boolean): PatnaSaveState = PatnaSaveState(
+        playerX = playerX,
+        playerZ = playerZ,
+        carX = carX,
+        carZ = carZ,
+        carYaw = carYaw,
+        cameraYaw = yaw,
+        cameraLookHeight = cameraLookHeight,
+        hasMet = hasMet,
+        driving = driving,
+        worldMinuteOfDay = worldMinuteOfDay
+    ).sanitized()
 }
 
-private data class ActorWaypoint(val x: Float, val z: Float, val pause: Float = 0f)
-private data class WorldCollider(val minX: Float, val maxX: Float, val minZ: Float, val maxZ: Float)
+internal data class ActorWaypoint(val x: Float, val z: Float, val pause: Float = 0f)
+private const val CHARACTER_GROUND_Y = 0.12f
+private const val BACKGROUND_CITY_ASSET_COUNT = 17
 
-private val PATNA_COLLIDERS = listOf(
+/**
+ * Stores the model-space bottom-center anchor after the node's own scale is applied.
+ * The offset is re-rotated on every movement update so off-center GLB pivots do not
+ * make a character snap vertically or drift sideways as it turns.
+ */
+internal data class CharacterGrounding(
+    val localBottomX: Float,
+    val localBottomY: Float,
+    val localBottomZ: Float
+) {
+    fun rootPosition(anchorX: Float, groundY: Float, anchorZ: Float, yawDegrees: Float): Position {
+        val safeYaw = if (yawDegrees.isFinite()) yawDegrees else 0f
+        val yawRadians = safeYaw * PI.toFloat() / 180f
+        val c = cos(yawRadians)
+        val sn = sin(yawRadians)
+        val bottomWorldX = c * localBottomX + sn * localBottomZ
+        val bottomWorldZ = -sn * localBottomX + c * localBottomZ
+        return Position(
+            x = anchorX - bottomWorldX,
+            y = groundY - localBottomY,
+            z = anchorZ - bottomWorldZ
+        )
+    }
+}
+
+internal fun characterGroundingFromBounds(
+    centerX: Float,
+    centerY: Float,
+    centerZ: Float,
+    halfExtentY: Float,
+    scaleX: Float,
+    scaleY: Float,
+    scaleZ: Float
+): CharacterGrounding = CharacterGrounding(
+    localBottomX = centerX * scaleX,
+    localBottomY = (centerY - halfExtentY) * scaleY,
+    localBottomZ = centerZ * scaleZ
+)
+
+/**
+ * Union of renderable boxes expressed in the ModelNode root's local space.
+ * Renderable AABBs are object-space culling boxes; every box corner is transformed through
+ * the complete child hierarchy before it contributes to height or foot grounding.
+ */
+internal data class CharacterAabb(
+    val minX: Float,
+    val minY: Float,
+    val minZ: Float,
+    val maxX: Float,
+    val maxY: Float,
+    val maxZ: Float
+) {
+    val height: Float get() = maxY - minY
+    val centerX: Float get() = (minX + maxX) * 0.5f
+    val centerY: Float get() = (minY + maxY) * 0.5f
+    val centerZ: Float get() = (minZ + maxZ) * 0.5f
+    val halfExtentY: Float get() = height * 0.5f
+}
+
+/** Transform all eight corners of one object-space AABB into model-root space. */
+internal fun transformedCharacterAabb(
+    center: Position,
+    halfExtent: Size,
+    localTransform: Transform
+): CharacterAabb? {
+    val source = floatArrayOf(
+        center.x, center.y, center.z,
+        halfExtent.x, halfExtent.y, halfExtent.z
+    )
+    if (source.any { !it.isFinite() } ||
+        halfExtent.x < 0f || halfExtent.y < 0f || halfExtent.z < 0f
+    ) return null
+
+    var minX = Float.POSITIVE_INFINITY
+    var minY = Float.POSITIVE_INFINITY
+    var minZ = Float.POSITIVE_INFINITY
+    var maxX = Float.NEGATIVE_INFINITY
+    var maxY = Float.NEGATIVE_INFINITY
+    var maxZ = Float.NEGATIVE_INFINITY
+
+    for (sx in floatArrayOf(-1f, 1f)) {
+        for (sy in floatArrayOf(-1f, 1f)) {
+            for (sz in floatArrayOf(-1f, 1f)) {
+                val point = localTransform * Position(
+                    center.x + halfExtent.x * sx,
+                    center.y + halfExtent.y * sy,
+                    center.z + halfExtent.z * sz
+                )
+                if (!point.x.isFinite() || !point.y.isFinite() || !point.z.isFinite()) return null
+                minX = minOf(minX, point.x)
+                minY = minOf(minY, point.y)
+                minZ = minOf(minZ, point.z)
+                maxX = maxOf(maxX, point.x)
+                maxY = maxOf(maxY, point.y)
+                maxZ = maxOf(maxZ, point.z)
+            }
+        }
+    }
+    return CharacterAabb(minX, minY, minZ, maxX, maxY, maxZ)
+}
+
+/** Merge already-transformed renderable bounds into one model-root AABB. */
+internal fun unionCharacterAabbs(bounds: List<CharacterAabb>): CharacterAabb? {
+    if (bounds.isEmpty()) return null
+    if (bounds.any { box ->
+            listOf(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ).any { !it.isFinite() } ||
+                box.minX > box.maxX || box.minY > box.maxY || box.minZ > box.maxZ
+        }
+    ) return null
+    return CharacterAabb(
+        minX = bounds.minOf { it.minX },
+        minY = bounds.minOf { it.minY },
+        minZ = bounds.minOf { it.minZ },
+        maxX = bounds.maxOf { it.maxX },
+        maxY = bounds.maxOf { it.maxY },
+        maxZ = bounds.maxOf { it.maxZ }
+    )
+}
+
+/**
+ * ModelNode.boundingBox is the GLB accessor-level box. It can omit child-node transforms.
+ * Instead, transform each Filament renderable's object-space culling AABB through its full
+ * hierarchy, cancel the ModelNode's world transform, and merge in model-root coordinates.
+ */
+private fun ModelNode.characterBoundsInModelSpace(): CharacterAabb? = try {
+    if (renderableNodes.isEmpty()) {
+        null
+    } else {
+        val worldToModel = inverse(worldTransform)
+        val renderableBounds = renderableNodes.mapNotNull { renderable ->
+            val box = renderable.axisAlignedBoundingBox
+            val center = box.center
+            val halfExtent = box.halfExtent
+            if (center.size < 3 || halfExtent.size < 3) {
+                null
+            } else {
+                transformedCharacterAabb(
+                    center = Position(center[0], center[1], center[2]),
+                    halfExtent = Size(halfExtent[0], halfExtent[1], halfExtent[2]),
+                    localTransform = worldToModel * renderable.worldTransform
+                )
+            }
+        }
+        unionCharacterAabbs(renderableBounds)
+            ?.takeIf { it.height.isFinite() && it.height > 0.001f }
+    }
+} catch (_: Exception) {
+    null
+}
+
+private fun ModelNode.characterGrounding(bounds: CharacterAabb? = characterBoundsInModelSpace()): CharacterGrounding =
+    if (bounds != null) {
+        characterGroundingFromBounds(
+            centerX = bounds.centerX,
+            centerY = bounds.centerY,
+            centerZ = bounds.centerZ,
+            halfExtentY = bounds.halfExtentY,
+            scaleX = scale.x,
+            scaleY = scale.y,
+            scaleZ = scale.z
+        )
+    } else {
+        // Last-resort fallback for malformed models with no usable renderable AABBs.
+        characterGroundingFromBounds(
+            centerX = center.x,
+            centerY = center.y,
+            centerZ = center.z,
+            halfExtentY = halfExtent.y,
+            scaleX = scale.x,
+            scaleY = scale.y,
+            scaleZ = scale.z
+        )
+    }
+
+private data class PedestrianRoutine(
+    val node: ModelNode,
+    val waypoints: List<ActorWaypoint>,
+    val walkAnimationSpeed: Float,
+    val grounding: CharacterGrounding,
+    var x: Float,
+    var z: Float,
+    var yawDegrees: Float
+)
+
+/**
+ * Converts a model's measured, unscaled vertical AABB height into a uniform scale.
+ * Returns 1f for invalid bounds so malformed GLBs never create Infinity/NaN transforms.
+ */
+internal fun uniformScaleForCharacterHeight(unscaledHeightMeters: Float, targetHeightMeters: Float): Float =
+    if (unscaledHeightMeters.isFinite() && unscaledHeightMeters > 0f &&
+        targetHeightMeters.isFinite() && targetHeightMeters > 0f
+    ) targetHeightMeters / unscaledHeightMeters else 1f
+
+/** Turns toward a heading along the shortest arc, with a frame-rate independent angular limit. */
+internal fun approachYawDegrees(currentDegrees: Float, targetDegrees: Float, maxDegreesPerStep: Float): Float {
+    if (!currentDegrees.isFinite() || !targetDegrees.isFinite()) return 0f
+
+    fun wrap(degrees: Float): Float = ((degrees % 360f) + 360f) % 360f
+
+    val current = wrap(currentDegrees)
+    val target = wrap(targetDegrees)
+    val shortestDelta = ((target - current + 540f) % 360f) - 180f
+    val maxStep = if (maxDegreesPerStep.isFinite()) maxDegreesPerStep.coerceAtLeast(0f) else 0f
+    return wrap(current + shortestDelta.coerceIn(-maxStep, maxStep))
+}
+
+/** Planar world-space velocity used to ease on-foot starts, stops and direction changes. */
+internal data class PlanarVelocity(val x: Float, val z: Float)
+
+/**
+ * Moves a planar velocity toward its target by at most [maxDelta] metres/second per frame.
+ * This keeps acceleration independent of frame rate and prevents direction changes from snapping.
+ */
+internal fun approachPlanarVelocity(
+    currentX: Float,
+    currentZ: Float,
+    targetX: Float,
+    targetZ: Float,
+    maxDelta: Float
+): PlanarVelocity {
+    val safeCurrentX = currentX.takeIf { it.isFinite() } ?: 0f
+    val safeCurrentZ = currentZ.takeIf { it.isFinite() } ?: 0f
+    val safeTargetX = targetX.takeIf { it.isFinite() } ?: 0f
+    val safeTargetZ = targetZ.takeIf { it.isFinite() } ?: 0f
+    val safeMaxDelta = if (maxDelta.isFinite()) maxDelta.coerceAtLeast(0f) else 0f
+    val deltaX = safeTargetX - safeCurrentX
+    val deltaZ = safeTargetZ - safeCurrentZ
+    val distance = sqrt(deltaX * deltaX + deltaZ * deltaZ)
+    if (distance <= safeMaxDelta || distance <= 0.000001f) {
+        return PlanarVelocity(safeTargetX, safeTargetZ)
+    }
+    val fraction = safeMaxDelta / distance
+    return PlanarVelocity(
+        safeCurrentX + deltaX * fraction,
+        safeCurrentZ + deltaZ * fraction
+    )
+}
+
+internal val BANK_EMPLOYEE_WAYPOINTS = listOf(
+    ActorWaypoint(34f, 18f, 2.0f),
+    ActorWaypoint(48f, 18f, 0.8f),
+    ActorWaypoint(56f, 18f, 7.0f),
+    ActorWaypoint(56f, 40f, 0.8f),
+    ActorWaypoint(48f, 40f, 1.2f),
+    ActorWaypoint(34f, 18f, 5.0f)
+)
+
+internal val MARKET_FARMER_WAYPOINTS = listOf(
+    ActorWaypoint(15f, -20f, 1.5f),
+    ActorWaypoint(15f, -36f, 0.8f),
+    ActorWaypoint(28f, -36f, 0.8f),
+    ActorWaypoint(28f, -22f, 7.0f),
+    ActorWaypoint(15f, -20f, 4.0f)
+)
+
+/** Meera's home → market frontage → Ganga promenade loop, kept clear of static geometry. */
+internal val MEERA_DAILY_ROUTE = listOf(
+    ActorWaypoint(-14f, 34f, 1.2f),
+    ActorWaypoint(-8f, 5f, 0.5f),
+    ActorWaypoint(30f, -18f, 2.5f),
+    ActorWaypoint(32f, -40f, 0.8f),
+    ActorWaypoint(-25f, -45f, 5.0f),
+    ActorWaypoint(-30f, -5f, 0.8f),
+    ActorWaypoint(-17f, 15f, 2.0f)
+)
+
+internal data class WorldCollider(val minX: Float, val maxX: Float, val minZ: Float, val maxZ: Float)
+
+internal val PATNA_COLLIDERS = listOf(
     WorldCollider(-38f, -20f, 16f, 32f),   // riverside home
     WorldCollider(-62f, -42f, -12f, 4f),   // second home
     WorldCollider(51f, 61f, -37f, -19f),   // Golghar
@@ -109,8 +427,167 @@ private val PATNA_COLLIDERS = listOf(
     WorldCollider(19f, 27f, -33f, -23f),   // market stand
     WorldCollider(17f, 23f, 63f, 70f),     // parked traffic 1
     WorldCollider(62f, 70f, -80f, -72f),  // parked traffic 2
-    WorldCollider(-52f, -44f, -92f, -84f) // parked traffic 3
+    WorldCollider(-52f, -44f, -92f, -84f), // parked traffic 3
+    WorldCollider(-22.05f, -17.95f, -43.29f, -42.71f) // Ganga promenade bench
 )
+
+
+/**
+ * Checks a closed pedestrian route against the same static world colliders used by player
+ * movement. Expanded AABBs provide a conservative body-clearance margin.
+ */
+internal fun pedestrianRouteAvoidsColliders(
+    route: List<ActorWaypoint>,
+    colliders: List<WorldCollider>,
+    clearance: Float
+): Boolean {
+    if (route.size < 2 || !clearance.isFinite() || clearance < 0f) return false
+    if (route.any { !it.x.isFinite() || !it.z.isFinite() }) return false
+    if (colliders.any {
+            !it.minX.isFinite() || !it.maxX.isFinite() || !it.minZ.isFinite() || !it.maxZ.isFinite() ||
+                it.minX > it.maxX || it.minZ > it.maxZ
+        }
+    ) return false
+
+    return route.indices.all { index ->
+        val start = route[index]
+        val end = route[(index + 1) % route.size]
+        colliders.none { obstacle ->
+            val minX = obstacle.minX - clearance
+            val maxX = obstacle.maxX + clearance
+            val minZ = obstacle.minZ - clearance
+            val maxZ = obstacle.maxZ + clearance
+            val dx = end.x - start.x
+            val dz = end.z - start.z
+            var enter = 0f
+            var exit = 1f
+
+            fun clip(p: Float, q: Float): Boolean {
+                if (kotlin.math.abs(p) < 0.000001f) return q >= 0f
+                val ratio = q / p
+                if (p < 0f) {
+                    if (ratio > exit) return false
+                    enter = maxOf(enter, ratio)
+                } else {
+                    if (ratio < enter) return false
+                    exit = minOf(exit, ratio)
+                }
+                return true
+            }
+
+            // Liang–Barsky segment clipping against the clearance-expanded rectangle.
+            clip(-dx, start.x - minX) &&
+                clip(dx, maxX - start.x) &&
+                clip(-dz, start.z - minZ) &&
+                clip(dz, maxZ - start.z) &&
+                enter <= exit
+        }
+    }
+}
+
+internal data class PedestrianBlocker(val x: Float, val z: Float, val radius: Float)
+
+internal data class PedestrianStep(val x: Float, val z: Float, val yielding: Boolean)
+
+private val PEDESTRIAN_AVOIDANCE_ANGLES = floatArrayOf(
+    0f,
+    -1.0471976f,
+    1.0471976f,
+    -1.5707964f,
+    1.5707964f
+)
+
+/**
+ * Advances a route-following pedestrian by one safe step.
+ *
+ * The direct route is preferred. If a player, another pedestrian, a vehicle or static
+ * world geometry blocks that step, the actor tries two shallow sidesteps and then two
+ * lateral steps. If none is safe, it yields in place instead of clipping through anything.
+ */
+internal fun pedestrianAvoidanceStep(
+    currentX: Float,
+    currentZ: Float,
+    targetX: Float,
+    targetZ: Float,
+    blockers: List<PedestrianBlocker>,
+    colliders: List<WorldCollider>,
+    deltaSeconds: Float,
+    speedMetersPerSecond: Float,
+    actorRadius: Float = 0.45f
+): PedestrianStep {
+    val safeX = currentX.takeIf { it.isFinite() } ?: 0f
+    val safeZ = currentZ.takeIf { it.isFinite() } ?: 0f
+    if (!currentX.isFinite() || !currentZ.isFinite() ||
+        !targetX.isFinite() || !targetZ.isFinite() ||
+        !deltaSeconds.isFinite() || !speedMetersPerSecond.isFinite() ||
+        !actorRadius.isFinite() || actorRadius <= 0f ||
+        blockers.any { !it.x.isFinite() || !it.z.isFinite() || !it.radius.isFinite() || it.radius < 0f } ||
+        colliders.any {
+            !it.minX.isFinite() || !it.maxX.isFinite() ||
+                !it.minZ.isFinite() || !it.maxZ.isFinite() ||
+                it.minX > it.maxX || it.minZ > it.maxZ
+        }
+    ) return PedestrianStep(safeX, safeZ, yielding = true)
+
+    val safeDelta = deltaSeconds.coerceIn(0f, 0.05f)
+    val safeSpeed = speedMetersPerSecond.coerceIn(0f, 2.5f)
+    if (safeDelta <= 0f || safeSpeed <= 0f) return PedestrianStep(safeX, safeZ, yielding = false)
+
+    val toTargetX = targetX - currentX
+    val toTargetZ = targetZ - currentZ
+    val targetDistance = sqrt(toTargetX * toTargetX + toTargetZ * toTargetZ)
+    if (targetDistance <= 0.0001f) return PedestrianStep(safeX, safeZ, yielding = false)
+
+    val stepDistance = minOf(targetDistance, safeSpeed * safeDelta)
+    val directionX = toTargetX / targetDistance
+    val directionZ = toTargetZ / targetDistance
+    var bestStep: PedestrianStep? = null
+    var bestScore = Float.POSITIVE_INFINITY
+
+    for (angle in PEDESTRIAN_AVOIDANCE_ANGLES) {
+        val c = cos(angle)
+        val s = sin(angle)
+        val candidateDirectionX = directionX * c - directionZ * s
+        val candidateDirectionZ = directionX * s + directionZ * c
+        val candidateX = currentX + candidateDirectionX * stepDistance
+        val candidateZ = currentZ + candidateDirectionZ * stepDistance
+
+        if (candidateX - actorRadius < -480f || candidateX + actorRadius > 480f ||
+            candidateZ - actorRadius < -480f || candidateZ + actorRadius > 480f
+        ) continue
+
+        val hitsStaticGeometry = colliders.any { obstacle ->
+            candidateX + actorRadius > obstacle.minX &&
+                candidateX - actorRadius < obstacle.maxX &&
+                candidateZ + actorRadius > obstacle.minZ &&
+                candidateZ - actorRadius < obstacle.maxZ
+        }
+        if (hitsStaticGeometry) continue
+
+        val hitsMovingActor = blockers.any { blocker ->
+            val separationX = candidateX - blocker.x
+            val separationZ = candidateZ - blocker.z
+            val minimumSeparation = actorRadius + blocker.radius + 0.28f
+            separationX * separationX + separationZ * separationZ <
+                minimumSeparation * minimumSeparation
+        }
+        if (hitsMovingActor) continue
+
+        val remainingX = targetX - candidateX
+        val remainingZ = targetZ - candidateZ
+        val remainingDistance = sqrt(remainingX * remainingX + remainingZ * remainingZ)
+        if (targetDistance - remainingDistance <= 0.00001f) continue
+
+        // Keep the best progress while adding a small cost for unnecessary sideways motion.
+        val score = remainingDistance + stepDistance * kotlin.math.abs(angle) * 0.08f
+        if (score < bestScore) {
+            bestScore = score
+            bestStep = PedestrianStep(candidateX, candidateZ, yielding = false)
+        }
+    }
+
+    return bestStep ?: PedestrianStep(safeX, safeZ, yielding = true)
+}
 
 private fun hitsWorld(x: Float, z: Float, radius: Float): Boolean =
     x - radius < -480f || x + radius > 480f || z - radius < -480f || z + radius > 480f ||
@@ -123,12 +600,20 @@ private fun hitsWorld(x: Float, z: Float, radius: Float): Boolean =
  */
 @Composable
 fun Patna2047Screen(modifier: Modifier = Modifier) {
+    val context = LocalContext.current.applicationContext
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val saveScope = rememberCoroutineScope()
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine)
     val materialLoader = rememberMaterialLoader(engine)
+    val sunLight = rememberMainLightNode(engine) {
+        intensity = 84_900f
+        color = colorOf(1f, 0.98f, 0.96f)
+        lightDirection = Direction(0f, -1f, -0.4f)
+    }
     val cameraNode = rememberCameraNode(engine) {
-        position = Position(x = -14f, y = 3.4f, z = 29f)
-        lookAt(Position(x = -14f, y = 1f, z = 22f))
+        position = Position(x = -14f, y = 3.9f, z = 29f)
+        lookAt(Position(x = -14f, y = PATNA_CAMERA_DEFAULT_LOOK_HEIGHT, z = 22f))
         far = 1400f
     }
     val sceneNodes = rememberNodes()
@@ -136,16 +621,43 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     var loading by remember { mutableStateOf(true) }
     var worldReady by remember { mutableStateOf(false) }
     var loadMessage by remember { mutableStateOf("Preparing Patna 2047…") }
+    var worldClockLabel by remember { mutableStateOf("08:00 • MORNING") }
     var dialogue by remember { mutableStateOf("Ganga ke kinare ek nayi subah…") }
     var objective by remember { mutableStateOf("Explore the riverfront and meet Meera.") }
     var showJournal by remember { mutableStateOf(false) }
     var hasMet by remember { mutableStateOf(false) }
+    var saveReady by remember { mutableStateOf(false) }
+    var saveStatus by remember { mutableStateOf("LOADING") }
+    var playerVehicleLoading by remember { mutableStateOf(true) }
+    fun persistGameState() {
+        if (!saveReady || !worldReady || playerVehicleLoading) return
+        saveScope.launch {
+            saveStatus = if (context.savePatna2047Save(input.snapshot(hasMet))) "SAVED" else "SAVE ERROR"
+        }
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) persistGameState()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            persistGameState()
+        }
+    }
     var nearHome by remember { mutableStateOf(false) }
     var nearGolghar by remember { mutableStateOf(false) }
     var nearCar by remember { mutableStateOf(false) }
-        var pedestrianNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
+    var playerNode by remember { mutableStateOf<ModelNode?>(null) }
+    var npcNode by remember { mutableStateOf<ModelNode?>(null) }
+    var pedestrianRoutines by remember { mutableStateOf<List<PedestrianRoutine>>(emptyList()) }
     var vehicleNode by remember { mutableStateOf<ModelNode?>(null) }
     var trafficNodes by remember { mutableStateOf<List<ModelNode>>(emptyList()) }
+    var streetLampLights by remember { mutableStateOf<List<LightNode>>(emptyList()) }
+    var backgroundAssetsCompleted by remember { mutableStateOf(0) }
+    var backgroundAssetsFailed by remember { mutableStateOf(0) }
+    var playerVehicleUnavailable by remember { mutableStateOf(false) }
+    var backgroundAssetsFinished by remember { mutableStateOf(false) }
 
     val grass = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF71835C), roughness = 0.96f) }
     val asphalt = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF343A40), roughness = 0.9f) }
@@ -159,6 +671,41 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
     val skyBlue = remember(materialLoader) { materialLoader.createColorInstance(Color(0xFF83B9DF), roughness = 1f) }
 
     LaunchedEffect(Unit) {
+        // Restore the small offline game save before placing the player and vehicle.
+        val restoredSave = context.loadPatna2047Save()
+        val safeSave = (restoredSave ?: PatnaSaveState()).sanitized()
+        val resumeDrivingAfterVehicleLoad = safeSave.driving
+        input.restore(safeSave)
+        worldClockLabel = "${formatPatnaWorldTime(input.worldMinuteOfDay)} • ${patnaDayPhase(input.worldMinuteOfDay)}"
+        // Apply the restored sun immediately instead of showing a stale 08:00/daylight frame.
+        val restoredLighting = patnaLightingAt(input.worldMinuteOfDay)
+        sunLight.intensity = restoredLighting.sunIntensityLux
+        sunLight.color = colorOf(
+            restoredLighting.sunColorRed,
+            restoredLighting.sunColorGreen,
+            restoredLighting.sunColorBlue
+        )
+        sunLight.lightDirection = Direction(
+            restoredLighting.sunDirectionX,
+            restoredLighting.sunDirectionY,
+            restoredLighting.sunDirectionZ
+        )
+        // Keep the first playable frame on foot; restore driving only after the SUV exists.
+        input.driving = false
+        hasMet = safeSave.hasMet
+        objective = if (safeSave.hasMet) {
+            "Story 01 complete. Explore Golghar next."
+        } else {
+            "Explore the riverfront and meet Meera."
+        }
+        dialogue = if (safeSave.hasMet) {
+            "Welcome back to Patna 2047. Your riverfront progress is saved."
+        } else {
+            "Ganga ke kinare ek nayi subah…"
+        }
+        saveStatus = if (restoredSave == null) "NEW SAVE" else "READY"
+        saveReady = true
+
         // First render the complete land, roads and river so the player sees the world immediately.
         sceneNodes += PlaneNode(engine, size = Size(x = 1000f, y = 0f, z = 1000f), normal = Direction(y = 1f), materialInstance = grass)
         // Blue sky enclosure replaces the black void around the mobile 3D scene.
@@ -199,157 +746,360 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         sceneNodes += PlaneNode(engine, size = Size(x = 1.8f, y = 2.4f, z = 0f), normal = Direction(z = 1f), materialInstance = darkStone).apply { position = Position(x = 56f, y = 1.2f, z = -19.65f) }
         loadMessage = "Loading people, homes and city assets…"
 
-        suspend fun addModel(url: String, scale: Float, at: Position, yaw: Float = 0f, walk: Boolean = false): ModelNode? {
+        suspend fun addModel(
+            url: String,
+            scale: Float,
+            at: Position,
+            yaw: Float = 0f,
+            walk: Boolean = false,
+            targetHeightMeters: Float? = null
+        ): ModelNode? {
             return try {
-                val instance = modelLoader.loadModelInstance(url)
+                val cachedLocation = PatnaAssetCache.resolve(
+                    context = context,
+                    url = url,
+                    keepOffline = url == MAN_GLB || url == WOMAN_GLB
+                ) ?: run {
+                    loadMessage = "Asset unavailable; continuing with the local Patna world…"
+                    return null
+                }
+                // Parse skinned rest-pose bounds while the cached GLB still contains its source data.
+                // This corrects centimetre-authored vertices under 0.01 armature scale before sizing.
+                val skinnedRestPoseBounds = if (targetHeightMeters != null) {
+                    withContext(Dispatchers.Default) {
+                        PatnaSkinnedRestPoseBounds.read(File(cachedLocation))
+                    }
+                } else {
+                    null
+                }
+                val instance = modelLoader.loadModelInstance(cachedLocation)
                 if (instance == null) {
                     loadMessage = "Some city assets are unavailable. Continuing with the 3D city…"
                     null
                 } else {
-                    ModelNode(instance, autoAnimate = false, scaleToUnits = scale).also { node ->
+                    ModelNode(
+                        instance,
+                        autoAnimate = false,
+                        // scaleToUnits fits a cube, not a human's vertical stature. For people,
+                        // start from the asset's native AABB and scale from its measured Y height.
+                        scaleToUnits = if (targetHeightMeters == null) scale else null
+                    ).also { node ->
+                        // A skinned GLB's rest-pose vertex bounds include joint and inverse-bind
+                        // matrices; static renderable bounds remain the non-skinned/unsupported fallback.
+                        val hierarchyBounds = if (targetHeightMeters != null && skinnedRestPoseBounds == null) {
+                            node.characterBoundsInModelSpace()
+                        } else {
+                            null
+                        }
+                        val measuredBounds = skinnedRestPoseBounds ?: hierarchyBounds
+                        val nativeHeightMeters = measuredBounds?.height
+                            ?.takeIf { it.isFinite() && it > 0.001f }
+                            ?: (node.halfExtent.y * 2f)
+                        val boundsSource = when {
+                            skinnedRestPoseBounds != null -> "skinned-rest-pose-bounds"
+                            hierarchyBounds != null -> "transformed-renderable-hierarchy-fallback"
+                            else -> "glTF-accessor-fallback"
+                        }
+                        if (targetHeightMeters != null) {
+                            val uniformScale = uniformScaleForCharacterHeight(nativeHeightMeters, targetHeightMeters)
+                            if (uniformScale.isFinite() && uniformScale > 0f) {
+                                node.scale = Scale(uniformScale)
+                            }
+                        }
                         node.rotation = Rotation(y = yaw)
-                        // SceneView 2.2.1's centerOrigin(0,-1,0) uses an older offset rule.
-                        // Compute the rotated AABB bottom point directly so every GLB sits on the ground.
-                        val sx = node.scale.x
-                        val sy = node.scale.y
-                        val sz = node.scale.z
-                        val yawRad = yaw * PI.toFloat() / 180f
-                        val c = cos(yawRad)
-                        val sn = sin(yawRad)
-                        val bottomLocalX = node.center.x * sx
-                        val bottomLocalY = (node.center.y - node.halfExtent.y) * sy
-                        val bottomLocalZ = node.center.z * sz
-                        val bottomWorldX = c * bottomLocalX + sn * bottomLocalZ
-                        val bottomWorldZ = -sn * bottomLocalX + c * bottomLocalZ
-                        node.position = Position(
-                            x = at.x - bottomWorldX,
-                            y = at.y - bottomLocalY,
-                            z = at.z - bottomWorldZ
-                        )
+                        // Use the same transformed union for the bottom-centre foot anchor.
+                        val grounding = node.characterGrounding(measuredBounds)
+                        node.position = grounding.rootPosition(at.x, at.y, at.z, yaw)
+                        if (targetHeightMeters != null && BuildConfig.DEBUG) {
+                            val staticHeightMeters = nativeHeightMeters * node.scale.y
+                            val staticBottomY = node.position.y + grounding.localBottomY
+                            val staticTopY = staticBottomY + staticHeightMeters
+                            Log.d(
+                                "Patna2047Scale",
+                                "asset=" + url.substringAfterLast('/') + " boundsSource=" + boundsSource + " " +
+                                    "nativeMeasuredY=" + nativeHeightMeters + "m scaleY=" + node.scale.y + " " +
+                                    "targetY=" + targetHeightMeters + "m staticMeasuredHeight=" + staticHeightMeters + "m " +
+                                    "worldY=[" + staticBottomY + "," + staticTopY + "]m " +
+                                    "renderables=" + node.renderableNodes.size + " animations=" + node.animationCount +
+                                    "; rest pose includes joint skinning; animated pose extremes still require runtime capture"
+                            )
+                        }
                         if (walk && node.animationCount > 0) node.playAnimation(0, 0.95f, true)
                         sceneNodes += node
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 loadMessage = "Network asset skipped; the rest of Patna is still playable."
                 null
             }
         }
 
-        // Keep detailed assets sparse for mobile GPU/thermal headroom.
-        addModel(HOUSE_GLB, 17f, Position(x = -28f, y = 0f, z = 24f), yaw = 90f)
-        addModel(HOUSE_GLB, 14f, Position(x = -52f, y = 0f, z = -4f), yaw = 0f)
-        // Character assets are physically sized (human height, in metres), not giant scaled props.
-        val boy = addModel(MAN_GLB, 1.72f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
-        val girl = addModel(WOMAN_GLB, 1.62f, Position(x = -14f, y = 0.12f, z = 34f), yaw = 180f, walk = true)
-        val businessman = addModel(BUSINESSMAN_GLB, 1.72f, Position(x = 34f, y = 0.12f, z = 18f), yaw = 180f, walk = true)
-        val farmer = addModel(FARMER_GLB, 1.78f, Position(x = 15f, y = 0.12f, z = -20f), yaw = 90f, walk = true)
-        vehicleNode = addModel(SUV_GLB, 4.7f, Position(x = input.carX, y = 0.12f, z = input.carZ), yaw = 0f)
-        // More vehicles make the streets feel occupied; these are parked for now.
-        addModel(SUV_GLB, 4.7f, Position(x = 20f, y = 0.12f, z = 66f), yaw = 0f)
-        addModel(SUV_GLB, 4.7f, Position(x = 66f, y = 0.12f, z = -76f), yaw = 180f)
-        addModel(SUV_GLB, 4.7f, Position(x = -48f, y = 0.12f, z = -88f), yaw = 90f)
-        // Two autonomous traffic cars patrol the long north/south avenues.
-        val trafficA = addModel(SUV_GLB, 4.7f, Position(x = 4f, y = 0.12f, z = 180f), yaw = 0f)
-        val trafficB = addModel(SUV_GLB, 4.7f, Position(x = 180f, y = 0.12f, z = -180f), yaw = 180f)
-        trafficNodes = listOfNotNull(trafficA, trafficB)
-        // Large, textured city silhouettes and real-scale civic buildings widen the skyline.
-        // Load the large 23 MB tower in parallel so it never blocks the first playable frame.
-        launch { addModel(HIGHRISE_GLB, 118f, Position(x = 80f, y = 0f, z = -26f), yaw = 0f) }
-        addModel(BANK_GLB, 18f, Position(x = 70f, y = 0f, z = 28f), yaw = -90f)
-        addModel(UNIVERSITY_GLB, 26f, Position(x = -76f, y = 0f, z = 29f), yaw = 0f)
-        addModel(POWER_PLANT_GLB, 34f, Position(x = 94f, y = 0f, z = -54f), yaw = 90f)
-        addModel(TREE_GLB, 8.5f, Position(x = -43f, y = 0.08f, z = -28f))
-        addModel(STREETLIGHT_GLB, 8f, Position(x = -4.5f, y = 0.08f, z = 2f))
-        addModel(BUSSTOP_GLB, 3.0f, Position(x = 28f, y = 0.08f, z = 18f), yaw = 90f)
-        addModel(FARM_STAND_GLB, 2.6f, Position(x = 23f, y = 0.08f, z = -28f), yaw = 180f)
-
-        // Ghat benches and riverfront details.
+        // Ghat benches and riverfront details remain available in the first static world frame.
         sceneNodes += CubeNode(engine, size = Size(x = 4.1f, y = 0.48f, z = 0.58f), materialInstance = darkStone).apply { position = Position(x = -20f, y = 0.52f, z = -43f) }
         sceneNodes += CubeNode(engine, size = Size(x = 0.14f, y = 1.15f, z = 0.14f), materialInstance = darkStone).apply { position = Position(x = -21.7f, y = 0.55f, z = -43f) }
         sceneNodes += CubeNode(engine, size = Size(x = 0.14f, y = 1.15f, z = 0.14f), materialInstance = darkStone).apply { position = Position(x = -18.3f, y = 0.55f, z = -43f) }
 
-        // A few warm street lamps and roadway furniture, kept low-poly and spaced out.
+        // Warm street lamps are generated locally and do not wait for GLB downloads.
         for (x in listOf(-8f, 8f, 24f, 42f, 60f, 78f)) {
             sceneNodes += CylinderNode(engine, radius = 0.08f, height = 5.8f, materialInstance = darkStone).apply { position = Position(x = x, y = 2.9f, z = 10f) }
             sceneNodes += CubeNode(engine, size = Size(x = 0.8f, y = 0.12f, z = 0.12f), materialInstance = roadPaint).apply { position = Position(x = x + 0.28f, y = 5.68f, z = 10f) }
         }
+        // Three shadow-free warm point lights bring the procedural road lamps to life after dusk.
+        val lampLights = listOf(-8f, 24f, 60f).map { x ->
+            LightNode(engine, LightManager.Type.POINT) {
+                intensity(1f)
+                color(1f, 0.72f, 0.42f)
+                falloff(15f)
+            }.apply {
+                lightPosition = Position(x = x + 0.28f, y = 5.5f, z = 10f)
+            }
+        }
+        streetLampLights = lampLights
+        sceneNodes.addAll(lampLights)
+
+        // Load the two essential on-foot actors and the player's SUV before enabling controls.
+        // Homes, workers, traffic and skyline props stream in after the first playable frame.
+        loadMessage = "Loading Aarav, Meera and the SUV…"
+        val boy = addModel(MAN_GLB, 1f, Position(x = -18f, y = 0.12f, z = 18f), yaw = 180f, walk = true, targetHeightMeters = 1.72f)
+        val girl = addModel(WOMAN_GLB, 1f, Position(x = -14f, y = 0.12f, z = 34f), yaw = 180f, walk = true, targetHeightMeters = 1.64f)
+
+        playerNode = boy
+        npcNode = girl
+        vehicleNode = null
+        playerVehicleLoading = true
+        playerVehicleUnavailable = false
 
         if (boy != null && girl != null) {
             dialogue = "Aarav aur Meera ghar se nikal pade. Ganga ghat par aaj mela hai."
             objective = "Walk to the Ganga riverfront. Tap INTERACT near Meera."
+            if (playerVehicleUnavailable) {
+                dialogue = "Aarav and Meera are ready. The SUV is unavailable, so explore on foot."
+            }
             worldReady = true
+            loading = false
+            loadMessage = "Patna 2047 • Ganga Riverfront"
+
+            launch {
+                // Vehicle loading is optional: walking becomes playable before the SUV download.
+                val playerCar = addModel(
+                    SUV_GLB,
+                    4.7f,
+                    Position(x = input.carX, y = 0.12f, z = input.carZ),
+                    yaw = 0f
+                )
+                vehicleNode = playerCar
+                playerVehicleLoading = false
+                playerVehicleUnavailable = playerCar == null
+                if (playerCar != null && resumeDrivingAfterVehicleLoad) {
+                    input.driving = true
+                } else if (playerCar == null && resumeDrivingAfterVehicleLoad) {
+                    // Fall back to the last saved vehicle position without a phantom driving state.
+                    input.playerX = input.carX
+                    input.playerZ = input.carZ
+                    input.driving = false
+                }
+                if (playerCar == null) {
+                    dialogue = "Aarav and Meera are ready. The SUV is unavailable, so explore on foot."
+                }
+                persistGameState()
+
+                suspend fun addBackgroundAsset(
+                    url: String,
+                    scale: Float,
+                    at: Position,
+                    yaw: Float = 0f,
+                    walk: Boolean = false,
+                    targetHeightMeters: Float? = null
+                ): ModelNode? {
+                    val node = addModel(url, scale, at, yaw, walk, targetHeightMeters)
+                    backgroundAssetsCompleted = (backgroundAssetsCompleted + 1).coerceAtMost(BACKGROUND_CITY_ASSET_COUNT)
+                    if (node == null) backgroundAssetsFailed += 1
+                    return node
+                }
+
+                // Non-essential detail is deliberately loaded after controls are live.
+                addBackgroundAsset(HOUSE_GLB, 17f, Position(x = -28f, y = 0f, z = 24f), yaw = 90f)
+                addBackgroundAsset(HOUSE_GLB, 14f, Position(x = -52f, y = 0f, z = -4f), yaw = 0f)
+
+                val businessman = addBackgroundAsset(
+                    BUSINESSMAN_GLB, 1f, Position(x = 34f, y = 0.12f, z = 18f),
+                    yaw = 180f, walk = true, targetHeightMeters = 1.76f
+                )
+                val farmer = addBackgroundAsset(
+                    FARMER_GLB, 1f, Position(x = 15f, y = 0.12f, z = -20f),
+                    yaw = 90f, walk = true, targetHeightMeters = 1.68f
+                )
+                pedestrianRoutines = listOfNotNull(
+                    businessman?.let {
+                        PedestrianRoutine(it, BANK_EMPLOYEE_WAYPOINTS, 0.90f, it.characterGrounding(), 34f, 18f, 180f)
+                    },
+                    farmer?.let {
+                        PedestrianRoutine(it, MARKET_FARMER_WAYPOINTS, 0.82f, it.characterGrounding(), 15f, -20f, 90f)
+                    }
+                )
+
+                // Parked and moving traffic are streamed after the core player vehicle.
+                addBackgroundAsset(SUV_GLB, 4.7f, Position(x = 20f, y = 0.12f, z = 66f), yaw = 0f)
+                addBackgroundAsset(SUV_GLB, 4.7f, Position(x = 66f, y = 0.12f, z = -76f), yaw = 180f)
+                addBackgroundAsset(SUV_GLB, 4.7f, Position(x = -48f, y = 0.12f, z = -88f), yaw = 90f)
+                val trafficA = addBackgroundAsset(SUV_GLB, 4.7f, Position(x = 4f, y = 0.12f, z = 180f), yaw = 0f)
+                val trafficB = addBackgroundAsset(SUV_GLB, 4.7f, Position(x = 180f, y = 0.12f, z = -180f), yaw = 180f)
+                trafficNodes = listOfNotNull(trafficA, trafficB)
+
+                addBackgroundAsset(BANK_GLB, 18f, Position(x = 70f, y = 0f, z = 28f), yaw = -90f)
+                addBackgroundAsset(UNIVERSITY_GLB, 26f, Position(x = -76f, y = 0f, z = 29f), yaw = 0f)
+                addBackgroundAsset(POWER_PLANT_GLB, 34f, Position(x = 94f, y = 0f, z = -54f), yaw = 90f)
+                addBackgroundAsset(TREE_GLB, 8.5f, Position(x = -43f, y = 0.08f, z = -28f))
+                addBackgroundAsset(STREETLIGHT_GLB, 8f, Position(x = -4.5f, y = 0.08f, z = 2f))
+                addBackgroundAsset(BUSSTOP_GLB, 3.0f, Position(x = 28f, y = 0.08f, z = 18f), yaw = 90f)
+                addBackgroundAsset(FARM_STAND_GLB, 2.6f, Position(x = 23f, y = 0.08f, z = -28f), yaw = 180f)
+
+                // The 23 MB skyline tower is intentionally last so it cannot delay the first playable frame.
+                addBackgroundAsset(HIGHRISE_GLB, 118f, Position(x = 80f, y = 0f, z = -26f), yaw = 0f)
+                backgroundAssetsFinished = true
+            }
         } else {
-            dialogue = "Patna 2047 is ready. Character models are still loading or offline."
-            objective = "Explore the city and riverfront."
-            worldReady = true
+            // Keep the generated riverfront visible, but never report a playable world without both actors.
+            worldReady = false
+            loading = false
+            playerVehicleLoading = false
+            playerVehicleUnavailable = true
+            loadMessage = "Aarav or Meera could not be downloaded. Connect to the internet and reopen Patna 2047."
+            dialogue = "The riverfront is ready, but the character models are unavailable."
+            objective = "Reconnect to download the two required character models."
         }
-        loading = false
-        loadMessage = "Patna 2047 • Ganga Riverfront"
     }
 
-    // The female character follows a small daily routine: home → market → river promenade → home.
-    var playerNode by remember { mutableStateOf<ModelNode?>(null) }
-    var npcNode by remember { mutableStateOf<ModelNode?>(null) }
+    // Meera follows a home → market → Ganga promenade → home daily routine.
     var nearNpc by remember { mutableStateOf(false) }
-    val npcRoute = remember {
-        listOf(
-            ActorWaypoint(-14f, 34f, 1.2f),
-            ActorWaypoint(-8f, 5f, 0.5f),
-            ActorWaypoint(23f, -28f, 2.5f),
-            ActorWaypoint(-20f, -43f, 5.0f),
-            ActorWaypoint(-30f, -5f, 0.8f),
-            ActorWaypoint(-21f, 20f, 2.0f)
-        )
-    }
-    // Resolve the two rigged actors after the GLB files finish loading.
-    LaunchedEffect(sceneNodes.size, worldReady) {
-        val animated = sceneNodes.filterIsInstance<ModelNode>().filter { it.animationCount > 0 }
-        playerNode = animated.getOrNull(0)
-        npcNode = animated.getOrNull(1)
-        pedestrianNodes = animated.drop(2)
-    }
+    val npcRoute = remember { MEERA_DAILY_ROUTE }
+    // Read streamed assets without restarting the movement loop or resetting Meera's route.
+    val latestVehicleNode = rememberUpdatedState(vehicleNode)
+    val latestPedestrianRoutines = rememberUpdatedState(pedestrianRoutines)
+    val latestTrafficNodes = rememberUpdatedState(trafficNodes)
+    val latestStreetLampLights = rememberUpdatedState(streetLampLights)
 
-    LaunchedEffect(worldReady, playerNode, npcNode, vehicleNode, pedestrianNodes, trafficNodes) {
+    LaunchedEffect(worldReady, playerNode, npcNode) {
         val player = playerNode ?: return@LaunchedEffect
         val npc = npcNode ?: return@LaunchedEffect
         if (!worldReady) return@LaunchedEffect
+        val playerGrounding = player.characterGrounding()
+        val npcGrounding = npc.characterGrounding()
+        var playerYawDegrees = 180f
+        var playerVelocityX = 0f
+        var playerVelocityZ = 0f
+        // These are world-space foot anchors; ModelNode.position is the transformed GLB pivot.
+        var npcX = -14f
+        var npcZ = 34f
+        var npcYawDegrees = 180f
         var previous = 0L
-        var px = -18f
-        var pz = 18f
+        var clockUiAccumulator = 0f
+        var lightingAccumulator = 0f
+        var saveAccumulator = 0f
+        var px = input.playerX
+        var pz = input.playerZ
         var segment = 0
         var pause = 0f
         var lastNear = false
         var lastNearHome = false
         var lastNearGolghar = false
-        var lastMoving: Boolean? = null
+        var lastWalkAnimationSpeed = -1f
         var lastNpcWalking: Boolean? = null
-        // Roll the SUV's four separate wheel meshes when it moves.
-        val wheelNodes = vehicleNode?.renderableNodes?.filter { renderable ->
+        // Cache wheel renderables as streamed vehicle models arrive; do not restart the frame loop.
+        var activeVehicleNode = latestVehicleNode.value
+        var wheelNodes = activeVehicleNode?.renderableNodes?.filter { renderable ->
             val partName = renderable.name.orEmpty().lowercase()
             partName.contains("wheel") || partName.contains("tire") || partName.contains("tyre")
         }.orEmpty()
         var wheelRotation = 0f
-        val workerRoutes = listOf(
-            listOf(ActorWaypoint(34f, 18f, 1.2f), ActorWaypoint(40f, 18f, 0.6f), ActorWaypoint(40f, 27f, 1.5f), ActorWaypoint(34f, 27f, 0.6f)),
-            listOf(ActorWaypoint(15f, -20f, 1.5f), ActorWaypoint(15f, -35f, 0.6f), ActorWaypoint(31f, -35f, 1.8f), ActorWaypoint(31f, -20f, 0.6f))
-        )
-        val workerSegments = IntArray(pedestrianNodes.size)
-        val workerPauses = FloatArray(pedestrianNodes.size)
-        val trafficWheelNodes = trafficNodes.map { car ->
+
+        // These arrays grow when background worker models finish loading.
+        var activePedestrianRoutines = latestPedestrianRoutines.value
+        var workerSegments = IntArray(activePedestrianRoutines.size)
+        var workerPauses = FloatArray(activePedestrianRoutines.size)
+        var workerLastWalking = BooleanArray(activePedestrianRoutines.size) { true }
+
+        var activeTrafficNodes = latestTrafficNodes.value
+        var trafficWheelNodes = activeTrafficNodes.map { car ->
             car.renderableNodes.filter { renderable ->
                 val partName = renderable.name.orEmpty().lowercase()
                 partName.contains("wheel") || partName.contains("tire") || partName.contains("tyre")
             }
         }
-        val trafficWheelAngles = FloatArray(trafficNodes.size)
+        var trafficWheelAngles = FloatArray(activeTrafficNodes.size)
         while (true) {
             withFrameNanos { now ->
                 val dt = if (previous == 0L) 0.016f else ((now - previous) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
                 previous = now
 
-                val vehicle = vehicleNode
+                input.worldMinuteOfDay = advancePatnaWorldMinutes(input.worldMinuteOfDay, dt)
+                clockUiAccumulator += dt
+                lightingAccumulator += dt
+                if (lightingAccumulator >= 0.25f) {
+                    val lighting = patnaLightingAt(input.worldMinuteOfDay)
+                    sunLight.intensity = lighting.sunIntensityLux
+                    sunLight.color = colorOf(
+                        lighting.sunColorRed,
+                        lighting.sunColorGreen,
+                        lighting.sunColorBlue
+                    )
+                    sunLight.lightDirection = Direction(
+                        lighting.sunDirectionX,
+                        lighting.sunDirectionY,
+                        lighting.sunDirectionZ
+                    )
+                    latestStreetLampLights.value.forEach { it.setIntensityCandela(lighting.streetLampCandela) }
+                    lightingAccumulator %= 0.25f
+                }
+                if (clockUiAccumulator >= 1f) {
+                    worldClockLabel = "${formatPatnaWorldTime(input.worldMinuteOfDay)} • ${patnaDayPhase(input.worldMinuteOfDay)}"
+                    clockUiAccumulator %= 1f
+                }
+
+                val currentVehicle = latestVehicleNode.value
+                if (currentVehicle !== activeVehicleNode) {
+                    activeVehicleNode = currentVehicle
+                    wheelNodes = currentVehicle?.renderableNodes?.filter { renderable ->
+                        val partName = renderable.name.orEmpty().lowercase()
+                        partName.contains("wheel") || partName.contains("tire") || partName.contains("tyre")
+                    }.orEmpty()
+                    wheelRotation = 0f
+                }
+
+                val currentRoutines = latestPedestrianRoutines.value
+                if (currentRoutines !== activePedestrianRoutines) {
+                    activePedestrianRoutines = currentRoutines
+                    workerSegments = IntArray(currentRoutines.size)
+                    workerPauses = FloatArray(currentRoutines.size)
+                    workerLastWalking = BooleanArray(currentRoutines.size) { true }
+                }
+
+                val currentTrafficNodes = latestTrafficNodes.value
+                if (currentTrafficNodes !== activeTrafficNodes) {
+                    activeTrafficNodes = currentTrafficNodes
+                    trafficWheelNodes = currentTrafficNodes.map { car ->
+                        car.renderableNodes.filter { renderable ->
+                            val partName = renderable.name.orEmpty().lowercase()
+                            partName.contains("wheel") || partName.contains("tire") || partName.contains("tyre")
+                        }
+                    }
+                    trafficWheelAngles = FloatArray(currentTrafficNodes.size)
+                }
+
+                saveAccumulator += dt
+                if (saveAccumulator >= 5f) {
+                    saveAccumulator = 0f
+                    persistGameState()
+                }
+
+                val vehicle = currentVehicle
                 if (input.driving && vehicle != null) {
+                    // The on-foot velocity must not leak into the next exit-from-car movement.
+                    playerVelocityX = 0f
+                    playerVelocityZ = 0f
+                    lastWalkAnimationSpeed = -1f
                     // Mobile driving: throttle, reverse/brake, steering and coasting.
                     input.carSpeed = when {
                         input.forward -> (input.carSpeed + 10.5f * dt).coerceAtMost(24f)
@@ -364,11 +1114,11 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     // The SUV asset's forward axis is -Z; motion and model yaw now match.
                     val nextCarX = input.carX - sin(input.carYaw) * input.carSpeed * dt
                     val nextCarZ = input.carZ - cos(input.carYaw) * input.carSpeed * dt
-                    val trafficHit = trafficNodes.any { other ->
+                    val trafficHit = currentTrafficNodes.any { other ->
                         sqrt((nextCarX - other.position.x) * (nextCarX - other.position.x) + (nextCarZ - other.position.z) * (nextCarZ - other.position.z)) < 4.8f
                     }
-                    val pedestrianHit = (listOfNotNull(npc) + pedestrianNodes).any { person ->
-                        sqrt((nextCarX - person.position.x) * (nextCarX - person.position.x) + (nextCarZ - person.position.z) * (nextCarZ - person.position.z)) < 2.8f
+                    val pedestrianHit = (listOf(npcX to npcZ) + currentRoutines.map { it.x to it.z }).any { (personX, personZ) ->
+                        sqrt((nextCarX - personX) * (nextCarX - personX) + (nextCarZ - personZ) * (nextCarZ - personZ)) < 2.8f
                     }
                     if (hitsWorld(nextCarX, nextCarZ, 2.5f) || trafficHit || pedestrianHit) {
                         input.carSpeed = 0f
@@ -395,59 +1145,118 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     pz = input.playerZ
                     val moveX = (if (input.right) 1f else 0f) - (if (input.left) 1f else 0f)
                     val moveZ = (if (input.forward) 1f else 0f) - (if (input.back) 1f else 0f)
-                    val length = sqrt(moveX * moveX + moveZ * moveZ).coerceAtLeast(1f)
-                    val moving = moveX != 0f || moveZ != 0f
-                    if (lastMoving != moving) {
-                        // Reuse the indexed walk clip actually present in these GLBs.
-                        if (player.animationCount > 0) player.setAnimationSpeed(0, if (moving) 0.95f else 0f)
-                        lastMoving = moving
-                    }
-                    if (moving) {
-                        // Screen-up is forward, screen-left is left, relative to the camera heading.
-                        val worldX = moveX * cos(input.yaw) - moveZ * sin(input.yaw)
-                        val worldZ = -moveX * sin(input.yaw) - moveZ * cos(input.yaw)
-                        val nextX = px + worldX * 1.55f * dt / length
-                        val nextZ = pz + worldZ * 1.55f * dt / length
-                        // Axis-separated response: walls, parked cars, pedestrians and traffic have body.
-                        fun clearOfPeopleAndTraffic(x: Float, z: Float): Boolean {
-                            val peopleClear = (listOfNotNull(npc) + pedestrianNodes).all { person ->
-                                sqrt((x - person.position.x) * (x - person.position.x) + (z - person.position.z) * (z - person.position.z)) > 1.15f
-                            }
-                            val trafficClear = trafficNodes.all { car ->
-                                sqrt((x - car.position.x) * (x - car.position.x) + (z - car.position.z) * (z - car.position.z)) > 4.0f
-                            }
-                            return peopleClear && trafficClear
+                    val inputLength = sqrt(moveX * moveX + moveZ * moveZ)
+                    val hasMovementInput = inputLength > 0.001f
+                    // Screen-up is forward, screen-left is left, relative to the camera heading.
+                    val worldX = moveX * cos(input.yaw) - moveZ * sin(input.yaw)
+                    val worldZ = -moveX * sin(input.yaw) - moveZ * cos(input.yaw)
+                    val targetVelocityX = if (hasMovementInput) worldX * 1.55f / inputLength else 0f
+                    val targetVelocityZ = if (hasMovementInput) worldZ * 1.55f / inputLength else 0f
+                    // A short acceleration ramp and slightly stronger braking remove instant starts/stops.
+                    val acceleration = if (hasMovementInput) 4.8f else 6.5f
+                    val velocity = approachPlanarVelocity(
+                        playerVelocityX,
+                        playerVelocityZ,
+                        targetVelocityX,
+                        targetVelocityZ,
+                        acceleration * dt
+                    )
+                    playerVelocityX = velocity.x
+                    playerVelocityZ = velocity.z
+
+                    // Axis-separated collision response keeps sliding along walls and parked objects.
+                    fun clearOfPeopleAndTraffic(x: Float, z: Float): Boolean {
+                        val peopleClear = (listOf(npcX to npcZ) + currentRoutines.map { it.x to it.z }).all { (personX, personZ) ->
+                            sqrt((x - personX) * (x - personX) + (z - personZ) * (z - personZ)) > 1.15f
                         }
+                        val trafficClear = currentTrafficNodes.all { car ->
+                            sqrt((x - car.position.x) * (x - car.position.x) + (z - car.position.z) * (z - car.position.z)) > 4.0f
+                        }
+                        return peopleClear && trafficClear
+                    }
+                    val nextX = px + playerVelocityX * dt
+                    val nextZ = pz + playerVelocityZ * dt
+                    if (kotlin.math.abs(playerVelocityX) > 0.0001f) {
                         if (!hitsWorld(nextX, pz, 0.45f) && clearOfPeopleAndTraffic(nextX, pz) &&
                             sqrt((nextX - input.carX) * (nextX - input.carX) + (pz - input.carZ) * (pz - input.carZ)) > 3.0f
-                        ) px = nextX
+                        ) px = nextX else playerVelocityX = 0f
+                    }
+                    if (kotlin.math.abs(playerVelocityZ) > 0.0001f) {
                         if (!hitsWorld(px, nextZ, 0.45f) && clearOfPeopleAndTraffic(px, nextZ) &&
                             sqrt((px - input.carX) * (px - input.carX) + (nextZ - input.carZ) * (nextZ - input.carZ)) > 3.0f
-                        ) pz = nextZ
-                        val facingYaw = kotlin.math.atan2(-worldX, -worldZ)
-                        player.rotation = Rotation(y = facingYaw * 180f / PI.toFloat() + 180f)
+                        ) pz = nextZ else playerVelocityZ = 0f
+                    }
+
+                    val playerSpeed = sqrt(playerVelocityX * playerVelocityX + playerVelocityZ * playerVelocityZ)
+                    val walkAnimationSpeed = if (playerSpeed < 0.05f) 0f else {
+                        0.5f + 0.45f * (playerSpeed / 1.55f).coerceIn(0f, 1f)
+                    }
+                    if (player.animationCount > 0 &&
+                        (lastWalkAnimationSpeed < 0f || kotlin.math.abs(walkAnimationSpeed - lastWalkAnimationSpeed) >= 0.05f)
+                    ) {
+                        player.setAnimationSpeed(0, walkAnimationSpeed)
+                        lastWalkAnimationSpeed = walkAnimationSpeed
+                    }
+                    if (playerSpeed > 0.05f) {
+                        val targetPlayerYaw = kotlin.math.atan2(-playerVelocityX, -playerVelocityZ) * 180f / PI.toFloat() + 180f
+                        playerYawDegrees = approachYawDegrees(playerYawDegrees, targetPlayerYaw, 540f * dt)
                     }
                     input.playerX = px
                     input.playerZ = pz
-                    player.position = Position(x = px, y = 0.12f, z = pz)
+                    player.rotation = Rotation(y = playerYawDegrees)
+                    player.position = playerGrounding.rootPosition(px, CHARACTER_GROUND_Y, pz, playerYawDegrees)
                 }
 
                 // Independent orbit camera: full 360° yaw and adjustable elevation.
                 val followX = if (input.driving) input.carX else px
                 val followZ = if (input.driving) input.carZ else pz
-                val followDistance = if (input.driving) 9.5f else 6.0f
+                val followDistance = if (input.driving) 9.5f else 6.7f
                 cameraNode.position = Position(
                     x = followX + sin(input.yaw) * followDistance,
                     y = input.cameraHeight,
                     z = followZ + cos(input.yaw) * followDistance
                 )
-                cameraNode.lookAt(Position(x = followX, y = input.cameraLookHeight, z = followZ))
+                cameraNode.lookAt(
+                    Position(
+                        x = followX,
+                        y = input.cameraLookHeight.coerceIn(
+                            PATNA_CAMERA_MIN_LOOK_HEIGHT,
+                            PATNA_CAMERA_MAX_LOOK_HEIGHT
+                        ),
+                        z = followZ
+                    )
+                )
 
+                val avoidancePlayer = PedestrianBlocker(
+                    x = if (input.driving) input.carX else px,
+                    z = if (input.driving) input.carZ else pz,
+                    radius = if (input.driving) 2.35f else 0.45f
+                )
+                val trafficBlockers = currentTrafficNodes.map { traffic ->
+                    PedestrianBlocker(traffic.position.x, traffic.position.z, 2.15f)
+                }
+                val meeraBlockers = listOf(avoidancePlayer) +
+                    currentRoutines.map { PedestrianBlocker(it.x, it.z, 0.45f) } +
+                    trafficBlockers
                 val target = npcRoute[segment]
-                val nx = target.x - npc.position.x
-                val nz = target.z - npc.position.z
+                val nx = target.x - npcX
+                val nz = target.z - npcZ
                 val distance = sqrt(nx * nx + nz * nz)
-                val npcWalking = distance >= 0.65f
+                val meeraStep = if (distance >= 0.65f) {
+                    pedestrianAvoidanceStep(
+                        currentX = npcX,
+                        currentZ = npcZ,
+                        targetX = target.x,
+                        targetZ = target.z,
+                        blockers = meeraBlockers,
+                        colliders = PATNA_COLLIDERS,
+                        deltaSeconds = dt,
+                        speedMetersPerSecond = 1.3f
+                    )
+                } else {
+                    PedestrianStep(npcX, npcZ, yielding = false)
+                }
+                val npcWalking = distance >= 0.65f && !meeraStep.yielding
                 if (lastNpcWalking != npcWalking) {
                     if (npc.animationCount > 0) npc.setAnimationSpeed(0, if (npcWalking) 0.9f else 0f)
                     lastNpcWalking = npcWalking
@@ -458,37 +1267,38 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                         pause = 0f
                         segment = (segment + 1) % npcRoute.size
                     }
-                } else {
-                    val step = (1.3f * dt).coerceAtMost(distance)
-                    npc.position = Position(
-                        x = npc.position.x + nx / distance * step,
-                        y = 0.12f,
-                        z = npc.position.z + nz / distance * step
-                    )
-                    npc.rotation = Rotation(y = kotlin.math.atan2(nx, nz) * 180f / PI.toFloat() + 180f)
+                } else if (npcWalking) {
+                    val stepX = meeraStep.x - npcX
+                    val stepZ = meeraStep.z - npcZ
+                    npcX = meeraStep.x
+                    npcZ = meeraStep.z
+                    val targetNpcYaw = kotlin.math.atan2(stepX, stepZ) * 180f / PI.toFloat() + 180f
+                    npcYawDegrees = approachYawDegrees(npcYawDegrees, targetNpcYaw, 360f * dt)
                 }
+                npc.rotation = Rotation(y = npcYawDegrees)
+                npc.position = npcGrounding.rootPosition(npcX, CHARACTER_GROUND_Y, npcZ, npcYawDegrees)
 
                 // Autonomous cars cruise long avenue loops with a fixed lane and speed.
-                trafficNodes.getOrNull(0)?.let { traffic ->
+                currentTrafficNodes.getOrNull(0)?.let { traffic ->
                     val trafficSpeed = 6.5f
                     val nextZ = traffic.position.z - trafficSpeed * dt
                     traffic.position = Position(x = 4f, y = 0.12f, z = if (nextZ < -180f) 180f else nextZ)
                     traffic.rotation = Rotation(y = 0f)
                     trafficWheelAngles[0] += trafficSpeed * dt / 0.37f * 180f / PI.toFloat()
-                    trafficWheelNodes[0].forEach { it.rotation = Rotation(x = trafficWheelAngles[0]) }
+                    trafficWheelNodes.getOrNull(0).orEmpty().forEach { it.rotation = Rotation(x = trafficWheelAngles[0]) }
                 }
-                trafficNodes.getOrNull(1)?.let { traffic ->
+                currentTrafficNodes.getOrNull(1)?.let { traffic ->
                     val trafficSpeed = 7.2f
                     val nextZ = traffic.position.z + trafficSpeed * dt
                     traffic.position = Position(x = 180f, y = 0.12f, z = if (nextZ > 180f) -180f else nextZ)
                     traffic.rotation = Rotation(y = 180f)
                     trafficWheelAngles[1] -= trafficSpeed * dt / 0.37f * 180f / PI.toFloat()
-                    trafficWheelNodes[1].forEach { it.rotation = Rotation(x = trafficWheelAngles[1]) }
+                    trafficWheelNodes.getOrNull(1).orEmpty().forEach { it.rotation = Rotation(x = trafficWheelAngles[1]) }
                 }
 
                 val nowNear = sqrt(
-                    (px - npc.position.x) * (px - npc.position.x) +
-                        (pz - npc.position.z) * (pz - npc.position.z)
+                    (px - npcX) * (px - npcX) +
+                        (pz - npcZ) * (pz - npcZ)
                 ) < 4.3f
                 if (nowNear != lastNear) {
                     lastNear = nowNear
@@ -502,25 +1312,71 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     nearHome = homeNearby
                 }
                 val golgharNearby = sqrt((px - 56f) * (px - 56f) + (pz + 28f) * (pz + 28f)) < 11f
-                // Independent pedestrian routes around the bus stop and market stall.
-                pedestrianNodes.forEachIndexed { index, worker ->
-                    val route = workerRoutes.getOrNull(index) ?: return@forEachIndexed
+                // Independent pedestrian routes use local yielding and sidesteps around moving actors.
+                currentRoutines.forEachIndexed { index, routine ->
+                    val worker = routine.node
+                    val route = routine.waypoints
                     val targetWorker = route[workerSegments[index]]
-                    val wx = targetWorker.x - worker.position.x
-                    val wz = targetWorker.z - worker.position.z
+                    val wx = targetWorker.x - routine.x
+                    val wz = targetWorker.z - routine.z
                     val workerDistance = sqrt(wx * wx + wz * wz)
+                    val workerBlockers = listOf(
+                        avoidancePlayer,
+                        PedestrianBlocker(npcX, npcZ, 0.45f)
+                    ) + currentRoutines.mapIndexedNotNull { otherIndex, other ->
+                        if (otherIndex == index) null else PedestrianBlocker(other.x, other.z, 0.45f)
+                    } + trafficBlockers
+                    val workerStep = if (workerDistance >= 0.5f) {
+                        pedestrianAvoidanceStep(
+                            currentX = routine.x,
+                            currentZ = routine.z,
+                            targetX = targetWorker.x,
+                            targetZ = targetWorker.z,
+                            blockers = workerBlockers,
+                            colliders = PATNA_COLLIDERS,
+                            deltaSeconds = dt,
+                            speedMetersPerSecond = 1.25f
+                        )
+                    } else {
+                        PedestrianStep(routine.x, routine.z, yielding = false)
+                    }
+                    val workerWalking = workerDistance >= 0.5f && !workerStep.yielding
+
                     if (workerDistance < 0.5f) {
+                        // Stop the walk cycle at a work/rest stop instead of walking in place.
+                        if (workerLastWalking[index]) {
+                            if (worker.animationCount > 0) worker.setAnimationSpeed(0, 0f)
+                            workerLastWalking[index] = false
+                        }
                         if (workerPauses[index] < targetWorker.pause) workerPauses[index] += dt
                         else {
                             workerPauses[index] = 0f
                             workerSegments[index] = (workerSegments[index] + 1) % route.size
                         }
-                    } else {
-                        val step = (1.25f * dt).coerceAtMost(workerDistance)
-                        worker.position = Position(x = worker.position.x + wx / workerDistance * step, y = 0.12f, z = worker.position.z + wz / workerDistance * step)
-                        worker.rotation = Rotation(y = kotlin.math.atan2(wx, wz) * 180f / PI.toFloat() + 180f)
-                        worker.setAnimationSpeed(0, 0.82f)
+                    } else if (workerWalking) {
+                        if (!workerLastWalking[index]) {
+                            if (worker.animationCount > 0) worker.setAnimationSpeed(0, routine.walkAnimationSpeed)
+                            workerLastWalking[index] = true
+                        }
+                        val stepX = workerStep.x - routine.x
+                        val stepZ = workerStep.z - routine.z
+                        routine.x = workerStep.x
+                        routine.z = workerStep.z
+                        val targetWorkerYaw = kotlin.math.atan2(stepX, stepZ) * 180f / PI.toFloat() + 180f
+                        routine.yawDegrees = approachYawDegrees(routine.yawDegrees, targetWorkerYaw, 360f * dt)
+                    } else if (workerLastWalking[index]) {
+                        // Yield in place until the nearby player, pedestrian or vehicle clears.
+                        if (worker.animationCount > 0) worker.setAnimationSpeed(0, 0f)
+                        workerLastWalking[index] = false
                     }
+
+                    worker.rotation = Rotation(y = routine.yawDegrees)
+                    worker.position = routine.grounding.rootPosition(
+                        routine.x,
+                        CHARACTER_GROUND_Y,
+                        routine.z,
+                        routine.yawDegrees
+                    )
                 }
                 if (golgharNearby != lastNearGolghar) {
                     lastNearGolghar = golgharNearby
@@ -537,6 +1393,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             modelLoader = modelLoader,
             materialLoader = materialLoader,
             cameraNode = cameraNode,
+            mainLightNode = sunLight,
             cameraManipulator = null,
             childNodes = sceneNodes,
             onFrame = { }
@@ -549,8 +1406,11 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     detectDragGestures { change, drag ->
                         change.consume()
                         input.yaw += drag.x * 0.008f
-                        // Swipe up raises the look target so the camera can look level/skyward.
-                        input.cameraLookHeight = (input.cameraLookHeight - drag.y * 0.034f).coerceIn(0.6f, 22f)
+                        // Small vertical drags now make subtle torso-to-head framing changes.
+                        input.cameraLookHeight = (input.cameraLookHeight - drag.y * 0.009f).coerceIn(
+                            PATNA_CAMERA_MIN_LOOK_HEIGHT,
+                            PATNA_CAMERA_MAX_LOOK_HEIGHT
+                        )
                     }
                 }
         )
@@ -580,9 +1440,24 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         ) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Text("LIVE WORLD", color = Color(0xFFFFD99A), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                Text(if (loading) loadMessage else "AARAV  •  MEERA  •  GOLGHAR", color = Color.White, fontSize = 9.sp)
+                Text("WORLD • $worldClockLabel", color = Color(0xFFFFD99A), fontSize = 9.sp)
+                Text(
+                    when {
+                        loading -> loadMessage
+                        !worldReady -> "CHARACTERS UNAVAILABLE • CITY VIEW ONLY"
+                        playerVehicleLoading -> "ON FOOT • SUV LOADING"
+                        !backgroundAssetsFinished -> "CITY ASSETS • $backgroundAssetsCompleted/$BACKGROUND_CITY_ASSET_COUNT"
+                        playerVehicleUnavailable && backgroundAssetsFailed > 0 -> "ON FOOT • SUV UNAVAILABLE • $backgroundAssetsFailed ASSETS SKIPPED"
+                        playerVehicleUnavailable -> "ON FOOT • SUV UNAVAILABLE"
+                        backgroundAssetsFailed > 0 -> "CITY READY • $backgroundAssetsFailed ASSETS SKIPPED"
+                        else -> "AARAV  •  MEERA  •  BANK STAFF  •  MARKET FARMER"
+                    },
+                    color = Color.White,
+                    fontSize = 9.sp
+                )
                 Text(if (input.driving) "DRIVING  •  ${(input.carSpeed * 3.6f).toInt()} km/h" else "ON FOOT  •  360° CAMERA", color = Color(0xFFB4C5C3), fontSize = 9.sp)
                 Text("Drag right side to orbit / tilt", color = Color(0xFFB4C5C3), fontSize = 9.sp)
+                Text("SAVE • $saveStatus", color = Color(0xFFB4C5C3), fontSize = 9.sp)
             }
         }
 
@@ -596,11 +1471,11 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 if (input.driving) "▲ GAS  •  ▼ REVERSE/BRAKE  •  ◀ ▶ STEER" else "▲ FORWARD  •  ▼ BACK  •  ◀ ▶ STRAFE",
                 color = Color(0xFFFFD99A), fontSize = 9.sp, fontWeight = FontWeight.Bold
             )
-            HoldDirection("▲", { input.forward = it })
+            HoldDirection("▲", { input.forward = it }, enabled = worldReady)
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-                HoldDirection("◀", { input.left = it })
-                HoldDirection("▼", { input.back = it })
-                HoldDirection("▶", { input.right = it })
+                HoldDirection("◀", { input.left = it }, enabled = worldReady)
+                HoldDirection("▼", { input.back = it }, enabled = worldReady)
+                HoldDirection("▶", { input.right = it }, enabled = worldReady)
             }
         }
 
@@ -612,22 +1487,41 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             Button(
                 onClick = {
                     if (input.driving) {
-                        // Step out on the passenger side and resume walking.
-                        val exitX = input.carX + 3.4f
-                        val exitZ = input.carZ
-                        val exitClear = !hitsWorld(exitX, exitZ, 0.5f)
-                        input.playerX = if (exitClear) exitX else input.carX - 3.4f
-                        input.playerZ = exitZ
-                        input.driving = false
-                        input.carSpeed = 0f
-                        input.yaw = input.carYaw
-                        dialogue = "Aarav: Gaadi park kar di. Ab paidal Meera ke paas chalte hain."
+                        if (!canExitVehicleAtSpeed(input.carSpeed)) {
+                            dialogue = "Aarav: Pehle gaadi rokte hain, phir bahar nikalte hain."
+                        } else {
+                            // Never teleport Aarav through a wall, pedestrian or moving car.
+                            // Prefer the passenger side, then use the opposite side only if clear.
+                            val exitBlockers = buildList {
+                                npcNode?.let { add(PedestrianBlocker(it.position.x, it.position.z, 0.8f)) }
+                                pedestrianRoutines.forEach { add(PedestrianBlocker(it.x, it.z, 0.55f)) }
+                                trafficNodes.forEach { add(PedestrianBlocker(it.position.x, it.position.z, 2.4f)) }
+                            }
+                            val exitSpot = findSafeVehicleExitSpot(
+                                carX = input.carX,
+                                carZ = input.carZ,
+                                carYawRadians = input.carYaw,
+                                colliders = PATNA_COLLIDERS,
+                                blockers = exitBlockers
+                            )
+                            if (exitSpot == null) {
+                                dialogue = "Aarav: Dono taraf jagah nahi hai. Thoda aage gaadi park karte hain."
+                            } else {
+                                input.playerX = exitSpot.x
+                                input.playerZ = exitSpot.z
+                                input.driving = false
+                                input.carSpeed = 0f
+                                input.yaw = input.carYaw
+                                dialogue = "Aarav: Gaadi safely park kar di. Ab paidal Meera ke paas chalte hain."
+                            }
+                        }
                     } else if (nearCar && vehicleNode != null) {
                         input.driving = true
                         input.carSpeed = 0f
                         input.yaw = input.carYaw
                                                  dialogue = "Aarav: Seat belt laga li. ▲ accelerate, ▼ reverse/brake, left/right steer."
                     }
+                    persistGameState()
                 },
                 enabled = if (input.driving) true else nearCar && vehicleNode != null,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF66B5A7), contentColor = Color(0xFF142220)),
@@ -640,6 +1534,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                             hasMet = true
                             dialogue = "Meera: Aarav, ghat par thodi der rukte hain. Aaj Ganga aarti dekhni hai!  •  Aarav: Haan, phir ghar lautenge."
                             objective = "Story 01 complete: Meet Meera. Explore Golghar next."
+                            persistGameState()
                         }
                         nearHome -> {
                             dialogue = "Meera: Yeh hamara ghar hai. Chalo, riverfront tak paidal chalte hain."
@@ -687,7 +1582,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
             Text(dialogue, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = Color(0xFFF4EBDC), fontSize = 10.sp, maxLines = 2)
         }
 
-        if (loading) {
+        if (loading || !worldReady) {
             Surface(
                 modifier = Modifier.align(Alignment.Center).padding(16.dp),
                 color = Color(0xEF19252A), shape = RoundedCornerShape(14.dp)
@@ -699,17 +1594,19 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun HoldDirection(label: String, onHold: (Boolean) -> Unit) {
+private fun HoldDirection(label: String, onHold: (Boolean) -> Unit, enabled: Boolean = true) {
     Box(
         modifier = Modifier.size(54.dp).clip(RoundedCornerShape(15.dp))
-            .background(Color(0xCC18252B))
-            .pointerInput(Unit) {
+            .background(if (enabled) Color(0xCC18252B) else Color(0x66515A5C))
+            .pointerInput(enabled) {
                 detectTapGestures(onPress = {
-                    onHold(true)
-                    try {
-                        tryAwaitRelease()
-                    } finally {
-                        onHold(false)
+                    if (enabled) {
+                        onHold(true)
+                        try {
+                            tryAwaitRelease()
+                        } finally {
+                            onHold(false)
+                        }
                     }
                 })
             },

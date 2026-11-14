@@ -1,6 +1,6 @@
 # Patna 2047 — asset credits and licence notes
 
-This branch uses original game code plus remote GLB models from Grab3D. The source model pages and package licence files identify these assets as CC0 1.0 Public Domain Dedication, including commercial game use and no attribution requirement. Some models are disclosed by Grab3D as AI-assisted, then cleaned up and textured in Blender.
+This branch uses original game code plus remote GLB models from Grab3D. The source model pages and package licence files identify these assets as CC0 1.0 Public Domain Dedication, including commercial game use and no attribution requirement. All four rigged character packages carry an AI-assisted origin disclosure: their base meshes/textures were generated with Meshy and then edited or rigged using Blender/Meshy Auto-Rig.
 
 | Asset | Source page | Runtime file |
 |---|---|---|
@@ -19,6 +19,22 @@ This branch uses original game code plus remote GLB models from Grab3D. The sour
 | University Building (clock-tower landmark) | https://grab3d.com/models/buildings/university-building/ | https://grab3d.com/dl/university-building/university-building.glb |
 | Power Plant (industrial skyline) | https://grab3d.com/models/buildings/power-plant/ | https://grab3d.com/dl/power-plant/power-plant.glb |
 
+## Human model dimensions and mobile budget (verified 2026-11-13)
+
+The four exact Grab3D source pages publish these upright dimensions and rigged GLB sizes. The configured target stature is intentionally a little below the source height for adult variation; the scale factor shown is `target height ÷ published source height`.
+
+| Actor / source asset | Publisher dimensions (W × D × H) | Rigged GLB size | Target stature | Approx. uniform scale |
+|---|---:|---:|---:|---:|
+| Aarav — Casual Man | 1.15 × 0.36 × 1.80 m | 13,051,272 bytes (12.45 MiB) | 1.72 m | 0.956 |
+| Meera — Casual Woman | 0.91 × 0.37 × 1.70 m | 13,013,836 bytes (12.41 MiB) | 1.64 m | 0.965 |
+| Bank employee — Businessman | 1.06 × 0.35 × 1.80 m | 12,498,476 bytes (11.92 MiB) | 1.76 m | 0.978 |
+| Market farmer — Farmer | 1.22 × 0.48 × 1.90 m | 13,219,688 bytes (12.61 MiB) | 1.68 m | 0.884 |
+
+Source pages: [Casual Man](https://grab3d.com/models/characters/man/), [Casual Woman](https://grab3d.com/models/characters/woman/), [Businessman](https://grab3d.com/models/characters/businessman/), [Farmer](https://grab3d.com/models/characters/farmer/). Grab3D's [licence statement](https://grab3d.com/license/) dedicates its models under CC0 1.0 for commercial use without attribution. The pages identify separate rigged Walk/Run versions.
+
+These are publisher-listed source dimensions, not a claim that every animated pose has the same bounds. Debug builds now emit `Patna2047Scale` log entries for each loaded actor: native vertical AABB, applied scale, post-scale static world-Y range, root yaw and animation count. The static AABB does not include deformed skeletal-animation extremes; those still require runtime capture or real-device visual inspection.
+
+The four rigged characters total **51,783,272 bytes (49.38 MiB)** before other city assets. This is a meaningful mobile first-load/network budget risk. Keep the current remote-first behavior documented until a separately tested, licence-compatible local/cache and texture-LOD pipeline is ready; do not replace rigged models with static low-resolution files that would remove walking animation.
 The Mixed-use High-rise is an original Innerscene model with a stated 56.2 × 42.3 m footprint and 134.6 m overall height; the publisher identifies it as CC0 and the downloaded GLB is about 23.1 MB. Its download API is used as a remote HTTPS GLB URL.
 
 The additional Grab3D bank, university and power-plant models are lightweight PBR GLBs, each listed by the publisher as CC0 1.0. They broaden the skyline, but their art direction is stylized rather than photorealistic.
@@ -26,4 +42,10 @@ The additional Grab3D bank, university and power-plant models are lightweight PB
 Grab3D licence: https://grab3d.com/license/
 CC0 1.0: https://creativecommons.org/publicdomain/zero/1.0/
 
-The four active human characters (Aarav, Meera, a businessman and a farmer) use rigged, textured CC0 GLBs with walk/run takes. Human node scale targets are set to human-height ranges (about 1.6–1.8 m), while vehicles and buildings use their metre-scale asset bounds. The world adds three further parked SUVs; collision boxes are authored in game code for the main buildings and parked vehicles. The Golghar-inspired landmark, riverfront terrain, ghats, roads, bridge deck, sidewalks and street furniture are generated in the app code. Network access is currently required on first load because the GLB models are fetched by HTTPS at runtime.
+The four active human characters (Aarav, Meera, a bank employee and a market farmer) use distinct rigged, textured CC0 GLBs with walk/run takes. Their scale is now derived from each loaded model's vertical AABB (`2 × halfExtent.y`) so the configured adult stature targets (1.72 m, 1.64 m, 1.76 m and 1.68 m) describe actual model height rather than the longest side of a fit-to-cube. Meera follows a home → market → Ganga promenade route; the bank employee follows a separate bank-shift loop; the farmer makes a produce run around the market stall and pauses at the work stop. Vehicle/building scale continues to use the existing fit-to-cube sizing. The world adds three further parked SUVs; collision boxes are authored in game code for the main buildings and parked vehicles. The Golghar-inspired landmark, riverfront terrain, ghats, roads, bridge deck, sidewalks and street furniture are generated in the app code. Network access is currently required on first load because the GLB models are fetched by HTTPS at runtime.
+
+### Package provenance and exact download metadata (checked 2026-11-13)
+
+Read-only HTTP HEAD requests to the four exact runtime GLB URLs returned HTTP 200 with `Content-Type: model/gltf-binary`. The byte counts in the table are the returned `Content-Length` values. They verify the current download payload sizes, **not** the GLB mesh/skeleton bounds; the publisher's W × D × H catalogue dimensions above remain reference metadata and are not a substitute for the app's runtime skin-aware measurement.
+
+The package-level origin disclosures are available in the [Man](https://grab3d.com/dl/man-rigged/LICENSE.txt), [Woman](https://grab3d.com/dl/woman-rigged/LICENSE.txt), [Businessman](https://grab3d.com/dl/businessman-rigged/LICENSE.txt) and [Farmer](https://grab3d.com/dl/farmer-rigged/LICENSE.txt) `LICENSE.txt` files. Treat these four models as AI-assisted content for storefront/platform disclosures where required (for example, Steam's AI-content survey). Grab3D's [CC0 1.0 licence statement](https://grab3d.com/license/) permits commercial use, modification, redistribution and inclusion in sold games without attribution, fees or royalties. CC0 does not grant third-party trademark, patent, privacy or publicity rights and does not imply Grab3D endorsement; the models are supplied without warranty.

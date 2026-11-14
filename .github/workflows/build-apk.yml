@@ -1,6 +1,9 @@
 name: Build Android Test APK
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -15,10 +18,10 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -41,6 +44,9 @@ jobs:
       - name: Run Unit Tests
         run: ./gradlew testDebugUnitTest --no-daemon
 
+      - name: Run Android Lint
+        run: ./gradlew lintDebug --no-daemon
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
@@ -51,9 +57,9 @@ jobs:
           find app/build/outputs/apk/debug/ -name "*.apk" | grep -q . || (echo "Error: No APK found!" && exit 1)
 
       - name: Upload Milestone APK Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: THE-LAST-ALCHEMIST-PHASE-05-STORY-MEMORY-APK
+          name: PATNA-2047-DEBUG-APK
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 

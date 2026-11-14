@@ -24,6 +24,18 @@ class PatnaWorldClockTest {
     }
 
     @Test
+    fun persistedWorldMinuteNormalizesNegativeAndOverflowValues() {
+        assertEquals(1_439f, normalizePatnaWorldMinuteOfDay(-1f), 0.0001f)
+        assertEquals(7f, normalizePatnaWorldMinuteOfDay(1_447f), 0.0001f)
+    }
+
+    @Test
+    fun invalidPersistedWorldMinuteUsesStartOfDay() {
+        assertEquals(480f, normalizePatnaWorldMinuteOfDay(Float.NaN), 0f)
+        assertEquals(480f, normalizePatnaWorldMinuteOfDay(Float.NEGATIVE_INFINITY), 0f)
+    }
+
+    @Test
     fun timeLabelUses24HourClockAndWraps() {
         assertEquals("08:05", formatPatnaWorldTime(485.9f))
         assertEquals("00:07", formatPatnaWorldTime(1_447f))

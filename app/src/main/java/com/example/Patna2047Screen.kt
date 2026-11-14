@@ -112,6 +112,8 @@ private class PatnaInput {
     var carZ = 18f
     var carYaw = 0f
     var carSpeed = 0f
+    // Persisted simulation time; plain state avoids a Compose recomposition every frame.
+    var worldMinuteOfDay = PATNA_WORLD_START_MINUTE.toFloat()
 
     fun restore(saved: PatnaSaveState) {
         val safe = saved.sanitized()
@@ -124,6 +126,7 @@ private class PatnaInput {
         cameraLookHeight = safe.cameraLookHeight
         driving = safe.driving
         carSpeed = 0f
+        worldMinuteOfDay = safe.worldMinuteOfDay
     }
 
     fun snapshot(hasMet: Boolean): PatnaSaveState = PatnaSaveState(
@@ -135,7 +138,8 @@ private class PatnaInput {
         cameraYaw = yaw,
         cameraLookHeight = cameraLookHeight,
         hasMet = hasMet,
-        driving = driving
+        driving = driving,
+        worldMinuteOfDay = worldMinuteOfDay
     ).sanitized()
 }
 
@@ -672,6 +676,20 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         val safeSave = (restoredSave ?: PatnaSaveState()).sanitized()
         val resumeDrivingAfterVehicleLoad = safeSave.driving
         input.restore(safeSave)
+        worldClockLabel = "${formatPatnaWorldTime(input.worldMinuteOfDay)} • ${patnaDayPhase(input.worldMinuteOfDay)}"
+        // Apply the restored sun immediately instead of showing a stale 08:00/daylight frame.
+        val restoredLighting = patnaLightingAt(input.worldMinuteOfDay)
+        sunLight.intensity = restoredLighting.sunIntensityLux
+        sunLight.color = colorOf(
+            restoredLighting.sunColorRed,
+            restoredLighting.sunColorGreen,
+            restoredLighting.sunColorBlue
+        )
+        sunLight.lightDirection = Direction(
+            restoredLighting.sunDirectionX,
+            restoredLighting.sunDirectionY,
+            restoredLighting.sunDirectionZ
+        )
         // Keep the first playable frame on foot; restore driving only after the SUV exists.
         input.driving = false
         hasMet = safeSave.hasMet
@@ -977,7 +995,6 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
         var npcZ = 34f
         var npcYawDegrees = 180f
         var previous = 0L
-        var worldMinuteOfDay = PATNA_WORLD_START_MINUTE.toFloat()
         var clockUiAccumulator = 0f
         var lightingAccumulator = 0f
         var saveAccumulator = 0f
@@ -1017,11 +1034,11 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                 val dt = if (previous == 0L) 0.016f else ((now - previous) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
                 previous = now
 
-                worldMinuteOfDay = advancePatnaWorldMinutes(worldMinuteOfDay, dt)
+                input.worldMinuteOfDay = advancePatnaWorldMinutes(input.worldMinuteOfDay, dt)
                 clockUiAccumulator += dt
                 lightingAccumulator += dt
                 if (lightingAccumulator >= 0.25f) {
-                    val lighting = patnaLightingAt(worldMinuteOfDay)
+                    val lighting = patnaLightingAt(input.worldMinuteOfDay)
                     sunLight.intensity = lighting.sunIntensityLux
                     sunLight.color = colorOf(
                         lighting.sunColorRed,
@@ -1037,7 +1054,7 @@ fun Patna2047Screen(modifier: Modifier = Modifier) {
                     lightingAccumulator %= 0.25f
                 }
                 if (clockUiAccumulator >= 1f) {
-                    worldClockLabel = "${formatPatnaWorldTime(worldMinuteOfDay)} • ${patnaDayPhase(worldMinuteOfDay)}"
+                    worldClockLabel = "${formatPatnaWorldTime(input.worldMinuteOfDay)} • ${patnaDayPhase(input.worldMinuteOfDay)}"
                     clockUiAccumulator %= 1f
                 }
 

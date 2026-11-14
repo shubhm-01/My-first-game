@@ -63,4 +63,23 @@ class PatnaSaveStateTest {
 
         assertEquals(PATNA_CAMERA_MAX_LOOK_HEIGHT, safe.cameraLookHeight, 0f)
     }
+    @Test
+    fun wrapsPersistedWorldTimeIntoOneDay() {
+        assertEquals(1_439f, PatnaSaveState(worldMinuteOfDay = -1f).sanitized().worldMinuteOfDay, 0.0001f)
+        assertEquals(7f, PatnaSaveState(worldMinuteOfDay = 1_447f).sanitized().worldMinuteOfDay, 0.0001f)
+    }
+
+    @Test
+    fun invalidPersistedWorldTimeFallsBackToMorning() {
+        assertEquals(
+            PATNA_WORLD_START_MINUTE.toFloat(),
+            PatnaSaveState(worldMinuteOfDay = Float.NaN).sanitized().worldMinuteOfDay,
+            0f
+        )
+        assertEquals(
+            PATNA_WORLD_START_MINUTE.toFloat(),
+            PatnaSaveState(worldMinuteOfDay = Float.POSITIVE_INFINITY).sanitized().worldMinuteOfDay,
+            0f
+        )
+    }
 }

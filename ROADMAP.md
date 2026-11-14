@@ -1,6 +1,6 @@
 # Patna 2047 — living development roadmap
 
-Last updated: 2026-11-13
+Last updated: 2026-11-14
 
 Patna 2047 is being developed as a mobile-first, third-person Indian city exploration and driving game. Work is delivered in small reviewable layers; this roadmap is intentionally maintained as the prototype grows.
 
@@ -44,7 +44,7 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 
 ## Prioritized next milestones
 
-- **Day/night foundation:** a session-local 24-minute clock now drives the sun and three warm street lamps; next persist the clock and validate exposure, readability and frame time on a real Android device.
+- **Day/night foundation:** a 24-minute in-game day drives the sun and three warm street lamps. The minute-of-day is now persisted in the same local Preferences DataStore as player progress; legacy saves without this key start at 08:00. Restored HUD and sun lighting are applied before the simulation resumes. Next validate exposure, readability and frame time on a real Android device.
 
 1. **Character and camera validation:** inspect the new `Patna2047Scale` debug logs, compare measured static bounds to the SUV and street furniture, then verify screenshots on a real Android device or emulator. The current static AABB does not prove animated-skeleton extremes; capture deformed bounds across the walk cycle before declaring scale verified. Add true idle/work animation clips only after confirming the actual GLB clip names.
 2. **Movement and collision polish:** shortest-arc character turning is frame-rate limited (player 540°/s, pedestrians 360°/s). On-foot planar acceleration (4.8 m/s²), braking (6.5 m/s²), direction reversal and velocity-linked walk animation are covered by JVM tests. The first local pedestrian-yielding/sidestep layer now checks the player, other pedestrians, traffic and static colliders before moving; Actions run #61 passed the new avoidance tests, full JVM suite and Android Lint. Real-device validation remains pending; next improve vehicle exit points and broader traffic awareness.
@@ -88,7 +88,7 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 - Added a 24-minute real-time world day: the simulation starts at 08:00 and advances one in-game minute per real second, with a 24-hour HUD clock and morning/afternoon/evening/night phase labels.
 - The main directional sun now changes intensity, colour temperature and direction through sunrise, midday, sunset and night. Its direction is normalized to Filament's required unit vector, with a regression test across night/dawn/noon/dusk. Three shadow-free warm point lights fade in around the existing procedural street lamps after dusk; no new downloads or third-party assets are required.
 - Lighting updates are throttled to 4 Hz and the clock label to 1 Hz, avoiding per-frame Compose recomposition. The night fill is intentionally non-zero for mobile readability.
-- World time is currently session-local and resets to 08:00 after a fresh process; save persistence, device brightness tuning, visual screenshots and frame-time profiling remain pending.
+- World time is persisted as a normalized minute-of-day in the local save. The simulation resumes from that minute after process restart; it does not advance against wall-clock time while the app is stopped. Device brightness tuning, visual screenshots and frame-time profiling remain pending.
 - This is a first lighting pass, not a full skybox, physically based atmosphere, weather system or verified day/night visual result.
 
 ## Latest verification — 2026-11-13 (GitHub Actions run #73)
@@ -99,3 +99,12 @@ Patna 2047 is being developed as a mobile-first, third-person Indian city explor
 - APK existence check passed. `app-debug.apk` is **52,777,168 bytes**; `PATNA-2047-DEBUG-APK` uploaded successfully (compressed artifact: 40,603,571 bytes). [Actions run #71](https://github.com/shubhm-01/My-first-game/actions/runs/43441856911).
 - No Android emulator or physical device was available. Day/night exposure, streetlamp falloff, camera composition, pedestrian/vehicle feel, frame time, GPU/memory and thermal behaviour remain unverified in rendered gameplay. The CI run validates source compilation and JVM logic, not visual correction.
 - The four Grab3D runtime URLs were checked with read-only HTTP HEAD requests for exact byte sizes and package provenance; their binary vertex/joint data was not downloaded or parsed in this run. Static/runtime character bounds and animated visible heights remain pending device capture.
+
+## Latest update — 2026-11-14: persistent world clock
+
+- Added a `world_minute_of_day` Preferences DataStore value to the existing local save. The 24-minute simulation day now resumes at its last saved in-game minute instead of resetting to 08:00 after process recreation.
+- Existing installations without the new key remain compatible and default to 08:00. Non-finite and out-of-range values are normalized into `[0, 1440)` before they reach the lighting or HUD calculations.
+- The restored clock label and directional sun intensity/colour/direction are applied immediately during save restoration, avoiding a brief stale morning-light frame before the normal 4 Hz lighting update.
+- The clock continues to advance only from rendered frame deltas; it pauses while the app is stopped rather than silently catching up to real-world time. The existing five-second save cadence and lifecycle-stop save include the clock.
+- Added save-state and clock-normalization regression cases for negative, overflow and non-finite values. No new assets or runtime downloads were added.
+- This is a persistence/code-level change. Process-death/relaunch behaviour, actual night exposure, streetlamp falloff and frame time still require Android device/emulator validation.

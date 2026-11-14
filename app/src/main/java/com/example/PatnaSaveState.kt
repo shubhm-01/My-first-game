@@ -30,6 +30,7 @@ private object PatnaSaveKeys {
     val CAMERA_LOOK_HEIGHT = floatPreferencesKey("camera_look_height")
     val HAS_MET = booleanPreferencesKey("has_met")
     val DRIVING = booleanPreferencesKey("driving")
+    val WORLD_MINUTE_OF_DAY = floatPreferencesKey("world_minute_of_day")
 }
 
 /** Small, device-local save for the current playable Patna 2047 slice. */
@@ -42,7 +43,8 @@ internal data class PatnaSaveState(
     val cameraYaw: Float = 0f,
     val cameraLookHeight: Float = PATNA_CAMERA_DEFAULT_LOOK_HEIGHT,
     val hasMet: Boolean = false,
-    val driving: Boolean = false
+    val driving: Boolean = false,
+    val worldMinuteOfDay: Float = PATNA_WORLD_START_MINUTE.toFloat()
 )
 
 /**
@@ -67,7 +69,8 @@ internal fun PatnaSaveState.sanitized(): PatnaSaveState {
         carZ = coordinate(carZ, 18f),
         carYaw = angle(carYaw),
         cameraYaw = angle(cameraYaw),
-        cameraLookHeight = safeLookHeight.coerceIn(PATNA_CAMERA_MIN_LOOK_HEIGHT, PATNA_CAMERA_MAX_LOOK_HEIGHT)
+        cameraLookHeight = safeLookHeight.coerceIn(PATNA_CAMERA_MIN_LOOK_HEIGHT, PATNA_CAMERA_MAX_LOOK_HEIGHT),
+        worldMinuteOfDay = normalizePatnaWorldMinuteOfDay(worldMinuteOfDay)
     )
 }
 
@@ -82,7 +85,8 @@ internal suspend fun Context.loadPatna2047Save(): PatnaSaveState? = try {
         cameraYaw = values[PatnaSaveKeys.CAMERA_YAW] ?: 0f,
         cameraLookHeight = values[PatnaSaveKeys.CAMERA_LOOK_HEIGHT] ?: PATNA_CAMERA_DEFAULT_LOOK_HEIGHT,
         hasMet = values[PatnaSaveKeys.HAS_MET] ?: false,
-        driving = values[PatnaSaveKeys.DRIVING] ?: false
+        driving = values[PatnaSaveKeys.DRIVING] ?: false,
+        worldMinuteOfDay = values[PatnaSaveKeys.WORLD_MINUTE_OF_DAY] ?: PATNA_WORLD_START_MINUTE.toFloat()
     ).sanitized()
 } catch (_: IOException) {
     null
@@ -100,6 +104,7 @@ internal suspend fun Context.savePatna2047Save(state: PatnaSaveState): Boolean =
         values[PatnaSaveKeys.CAMERA_LOOK_HEIGHT] = safe.cameraLookHeight
         values[PatnaSaveKeys.HAS_MET] = safe.hasMet
         values[PatnaSaveKeys.DRIVING] = safe.driving
+        values[PatnaSaveKeys.WORLD_MINUTE_OF_DAY] = safe.worldMinuteOfDay
     }
     true
 } catch (_: IOException) {
